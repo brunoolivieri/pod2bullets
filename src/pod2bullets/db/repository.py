@@ -499,3 +499,34 @@ class Repository:
         count = cur.rowcount
         self.conn.commit()
         return count
+
+    def reset_all_executions(self) -> dict[str, int]:
+        """Wipe all previous execution history (jobs, transcripts, summaries) and reset episodes to available."""
+        cur = self.conn.cursor()
+        cur.execute("DELETE FROM jobs")
+        jobs_del = cur.rowcount
+        cur.execute("DELETE FROM summaries")
+        sum_del = cur.rowcount
+        cur.execute("DELETE FROM transcripts")
+        tx_del = cur.rowcount
+        cur.execute(
+            """
+            UPDATE episodes
+            SET status = 'available',
+                local_audio_path = NULL,
+                file_size_bytes = NULL,
+                sha256 = NULL,
+                error_message = NULL
+            WHERE status != 'available'
+               OR local_audio_path IS NOT NULL
+               OR error_message IS NOT NULL
+            """
+        )
+        ep_reset = cur.rowcount
+        self.conn.commit()
+        return {
+            "jobs_deleted": jobs_del,
+            "transcripts_deleted": tx_del,
+            "summaries_deleted": sum_del,
+            "episodes_reset": ep_reset,
+        }

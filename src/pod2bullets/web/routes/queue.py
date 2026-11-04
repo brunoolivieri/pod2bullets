@@ -197,7 +197,18 @@ def _render_queue_panel_html() -> str:
             <div>
                 <span class="badge-total">{len(active_jobs) + len(mem_tasks)} ativo(s) na fila</span>
             </div>
-            <div>{cancel_all_btn}</div>
+            <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                {cancel_all_btn}
+                <button type="button"
+                        class="btn-reprocess"
+                        style="border-color: #f59e0b; color: #fbbf24;"
+                        hx-post="/queue/reset-all"
+                        hx-confirm="Deseja zerar TODO o histórico de execuções prévias (jobs, transcrições e resumos) e voltar todos os episódios para o estado inicial?"
+                        hx-target="#queue-panel-container"
+                        hx-swap="outerHTML">
+                    🗑️ Zerar Todo Histórico de Execuções
+                </button>
+            </div>
         </div>
         {active_section}
         {history_section}
@@ -264,3 +275,29 @@ def clear_queue_history(request: Request):
     if request.headers.get("hx-request"):
         return Response(content=_render_queue_panel_html(), media_type="text/html")
     return {"ok": True, "cleared_count": count}
+
+
+@router.post("/reset-all")
+def reset_all_previous_executions(request: Request):
+    """Wipe all previous jobs, transcripts, summaries, and files on disk, resetting episodes to available."""
+    import shutil
+
+    from pod2bullets.config import settings
+
+    conn = get_db_connection()
+    repo = Repository(conn)
+    stats = repo.reset_all_executions()
+    conn.close()
+
+    for d in (settings.podcasts_dir, settings.tmp_dir):
+        if d.exists():
+            for child in d.iterdir():
+                if child.is_dir():
+                    shutil.rmtree(child, ignore_errors=True)
+                else:
+                    child.unlink(missing_ok=True)
+
+    logger.info(f"[QUEUE] Todo o histórico de execuções prévias foi zerado: {stats}")
+    if request.headers.get("hx-request"):
+        return Response(content=_render_queue_panel_html(), media_type="text/html")
+    return {"ok": True, **stats}
