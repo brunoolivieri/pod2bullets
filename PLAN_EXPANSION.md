@@ -43,3 +43,4 @@ Plano de ação faseado para atender às novas demandas do usuário.
 - **P5:** Barra de progresso visual nos cards para download e transcrição.
 - **P6:** Gestor de Modelos: suporte a token/login HuggingFace, download acompanhado na Web e confirmação local.
 - **P7:** Verificação geral com testes automatizados no WSL Ubuntu 26.04.
+

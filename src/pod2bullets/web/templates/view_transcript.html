@@ -7,6 +7,9 @@
         <h2>{{ episode.title }}</h2>
         <div class="transcript-actions-bar">
             {% if transcripts %}
+            <span style="font-size: 0.85rem; color: #94a3b8; align-self: center; margin-right: 12px;">
+                ⏱️ Tempo de processamento: <strong>{{ transcripts[0].duration_proc_seconds or '?' }}s</strong>
+            </span>
             <a href="/episodes/{{ episode.id }}/transcripts/{{ transcripts[0].model_id }}/download" class="btn-txt">
                 ⬇️ Baixar Texto Puro (.txt)
             </a>

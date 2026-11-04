@@ -63,6 +63,9 @@ def create_app() -> FastAPI:
             f = repo.get_feed(ep.feed_id)
             d = ep.model_dump()
             d["feed_title"] = f.title if f else "Podcast"
+            # Get transcript duration if completed
+            transcripts = repo.list_episode_transcripts(ep.id)
+            d["proc_time"] = transcripts[0].duration_proc_seconds if transcripts else None
             episodes_with_feed.append(d)
 
         conn.close()
@@ -76,6 +79,25 @@ def create_app() -> FastAPI:
                 "current_feed_id": feed_id,
                 "models": all_models,
                 "episodes": episodes_with_feed,
+            },
+        )
+
+    @app.get("/feeds/manage", response_class=HTMLResponse)
+    def manage_feeds_page(request: Request):
+        conn = get_db_connection()
+        repo = Repository(conn)
+        sub_lists = repo.list_all_lists()
+        all_feeds = repo.list_feeds()
+        all_models = ModelRegistry().list_models()
+        conn.close()
+
+        return templates.TemplateResponse(
+            request=request,
+            name="feeds_manage.html",
+            context={
+                "lists": sub_lists,
+                "all_feeds": all_feeds,
+                "models": all_models,
             },
         )
 

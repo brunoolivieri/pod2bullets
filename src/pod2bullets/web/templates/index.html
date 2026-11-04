@@ -60,6 +60,9 @@
                 {% elif ep.status.value == 'completed' %}
                 <div class="completed-actions">
                     <span class="badge-completed">✅ Transcrito</span>
+                    {% if ep.proc_time %}
+                    <span class="proc-time-label" style="font-size: 0.75rem; color: #94a3b8;">⏱️ Tempo: {{ ep.proc_time }}s</span>
+                    {% endif %}
                     <a href="/view/{{ ep.id }}" class="btn-view">📖 Ler na Web</a>
                     <a href="/episodes/{{ ep.id }}/transcripts/{{ models[0].id }}/download" class="btn-txt">💾 Baixar .txt</a>
                 </div>

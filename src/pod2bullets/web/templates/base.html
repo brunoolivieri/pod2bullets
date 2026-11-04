@@ -18,11 +18,12 @@
             <select id="active-model" name="model_id" hx-post="/models/default" hx-swap="none">
                 {% for m in models %}
                 <option value="{{ m.id }}" {% if m.is_default %}selected{% endif %}>
-                    {{ m.name }} {% if m.is_installed %}(Instalado Localmente ✅){% else %}(Nuvem/Download ⚠️){% endif %}
+                    {{ m.name }} {% if m.is_installed %}(Instalado Localmente ✅ - ~{{ m.size_mb }}MB){% else %}(Não Instalado ⚠️ - ~{{ m.size_mb }}MB){% endif %}
                 </option>
                 {% endfor %}
             </select>
-            <a href="/models/manage" class="btn-manage-models">⚙️ Gerenciar / Baixar Modelos</a>
+            <a href="/models/manage" class="btn-manage-models">⚙️ Modelos Locais</a>
+            <a href="/feeds/manage" class="btn-manage-models">📻 Gerenciar Inscrições</a>
         </div>
     </header>
 

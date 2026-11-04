@@ -26,18 +26,14 @@ def set_default_model(model_id: str = Form(...)):
     return {"default_model_id": settings.default_model_id}
 
 
-@router.post("/token")
-def save_hf_token(token: str = Form(...)):
-    """Save Hugging Face user access token for authenticated downloads."""
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute(
-        "INSERT INTO settings (key, value) VALUES ('hf_token', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-        (token.strip(),),
-    )
-    conn.commit()
-    conn.close()
-    return {"ok": True}
+@router.delete("/{model_id}")
+def uninstall_model_endpoint(model_id: str):
+    """Uninstall and delete model weights from local disk."""
+    registry = ModelRegistry()
+    success = registry.uninstall_model(model_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Modelo não encontrado ou já desinstalado")
+    return {"ok": True, "model_id": model_id}
 
 
 @router.post("/{model_id}/download")

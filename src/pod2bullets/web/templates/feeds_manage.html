@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="models-container">
+    <div class="content-header">
+        <h2>Gerenciamento de Podcasts & Inscrições</h2>
+        <span class="badge-total">{{ all_feeds|length }} podcasts cadastrados</span>
+    </div>
+
+    <div class="episodes-list">
+        {% for f in all_feeds %}
+        <div class="model-card" id="feed-card-{{ f.id }}">
+            <div class="ep-cover-col" style="width: 60px; height: 60px;">
+                {% if f.image_url %}
+                <img src="{{ f.image_url }}" alt="Arte do Podcast" class="ep-cover-img">
+                {% else %}
+                <span style="font-size: 1.5rem;">📻</span>
+                {% endif %}
+            </div>
+
+            <div class="model-info" style="flex: 1;">
+                <h3>{{ f.title }}</h3>
+                <p><strong>URL RSS:</strong> <a href="{{ f.rss_url }}" target="_blank" rel="noopener" style="color: var(--primary);">{{ f.rss_url }}</a></p>
+                {% if f.site_url %}
+                <p><strong>Site:</strong> <a href="{{ f.site_url }}" target="_blank" rel="noopener" style="color: var(--text-muted);">{{ f.site_url }}</a></p>
+                {% endif %}
+            </div>
+
+            <div class="model-actions" style="display: flex; gap: 8px;">
+                <button class="btn-view" hx-post="/feeds/{{ f.id }}/sync" hx-swap="none" onclick="alert('Feed sincronizado com sucesso!'); location.reload();">
+                    🔄 Sincronizar Feed
+                </button>
+                <button class="btn-delete" hx-delete="/feeds/{{ f.id }}" hx-confirm="Deseja remover este podcast e seus episódios?" hx-target="#feed-card-{{ f.id }}" hx-swap="outerHTML">
+                    🗑️ Excluir
+                </button>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endblock %}

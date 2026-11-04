@@ -46,3 +46,16 @@ def sync_feed(feed_id: int):
         raise HTTPException(status_code=400, detail=f"Erro ao sincronizar: {e}")
     conn.close()
     return {"synced_episodes": count}
+
+
+@router.delete("/{feed_id}")
+def delete_feed(feed_id: int):
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM feeds WHERE id = ?", (feed_id,))
+    conn.commit()
+    deleted = cur.rowcount > 0
+    conn.close()
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Podcast não encontrado")
+    return {"ok": True}

@@ -26,7 +26,7 @@ CATALOG = {
         "engine": "faster-whisper",
         "desc": "OpenAI Large v3 Turbo (809M params). Rápido, multilíngue e estado da arte com VAD Silero.",
         "size_mb": 1600,
-        "repo": "Systran/faster-whisper-large-v3-turbo",
+        "repo": "mobiuslabsgmbh/faster-whisper-large-v3-turbo",
     },
     "parakeet-tdt-0.6b-v3": {
         "name": "NVIDIA Parakeet TDT 0.6B v3",
@@ -50,18 +50,37 @@ class ModelRegistry:
         # Check if dir has files
         return any(model_path.iterdir())
 
+    def get_installed_size_mb(self, model_id: str) -> float:
+        """Calculate real disk usage of the installed model in MB."""
+        model_path = self.models_dir / model_id
+        if not model_path.exists() or not model_path.is_dir():
+            return 0.0
+        total_bytes = sum(f.stat().st_size for f in model_path.rglob("*") if f.is_file())
+        return round(total_bytes / (1024 * 1024), 1)
+
+    def uninstall_model(self, model_id: str) -> bool:
+        """Remove model files from disk."""
+        import shutil
+
+        model_path = self.models_dir / model_id
+        if model_path.exists() and model_path.is_dir():
+            shutil.rmtree(model_path)
+            return True
+        return False
+
     def list_models(self, default_model_id: str | None = None) -> list[ModelInfo]:
         def_id = default_model_id or settings.default_model_id
         results = []
         for mid, meta in CATALOG.items():
             installed = self.is_model_installed(mid)
+            real_size = self.get_installed_size_mb(mid) if installed else meta["size_mb"]
             results.append(
                 ModelInfo(
                     id=mid,
                     name=meta["name"],
                     engine_name=meta["engine"],
                     description=meta["desc"],
-                    size_mb=meta["size_mb"],
+                    size_mb=int(real_size),
                     is_installed=installed,
                     is_default=(mid == def_id),
                     source_repo=meta["repo"],
