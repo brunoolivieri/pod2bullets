@@ -1,0 +1,41 @@
+# Virtual environments (WSL Linux & Windows)
+.venv/
+.venv-*/
+venv/
+ENV/
+
+# Python caches & build artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+dist/
+build/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Local runtime data (DB, downloaded podcasts, transcriptions, ASR model weights)
+data/db/*.sqlite*
+data/db/*.db*
+data/models/*
+!data/models/.gitkeep
+data/podcasts/*
+!data/podcasts/.gitkeep
+data/tmp/*
+!data/tmp/.gitkeep
+
+# Keep directory structure markers
+!data/db/.gitkeep
+
+# OS / Editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo
+

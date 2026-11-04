@@ -1,0 +1,33 @@
+# Auto detect text files and normalize to LF so WSL Ubuntu 26.04 and Windows interop cleanly
+* text=auto eol=lf
+
+*.sh text eol=lf
+*.py text eol=lf
+*.toml text eol=lf
+*.md text eol=lf
+*.json text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+*.html text eol=lf
+*.css text eol=lf
+*.js text eol=lf
+*.sql text eol=lf
+
+# Windows batch/powershell helpers keep CRLF
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# Binary files
+*.mp3 binary
+*.m4a binary
+*.ogg binary
+*.wav binary
+*.flac binary
+*.opus binary
+*.sqlite binary
+*.db binary
+*.onnx binary
+*.bin binary
+*.safetensors binary
+

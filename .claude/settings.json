@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(wsl -d Ubuntu-26.04*)",
+      "Bash(git *)",
+      "Bash(pytest*)",
+      "Bash(ruff*)",
+      "Bash(python*)",
+      "Bash(./scripts/*)",
+      "Read(*)",
+      "Edit(*)",
+      "Write(*)"
+    ],
+    "deny": []
+  },
+  "env": {
+    "POD2BULLETS_WSL_DISTRO": "Ubuntu-26.04",
+    "POD2BULLETS_WSL_PATH": "/mnt/c/gits/pod2bullets"
+  }
+}
+

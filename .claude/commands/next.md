@@ -1,0 +1,16 @@
+---
+description: Retoma automaticamente um handoff ativo ou executa o próximo passo elegível do PLAN.md no WSL Ubuntu 26.04
+argument-hint: "[ID do passo, ex.: F0.1]"
+---
+
+Siga rigorosamente o "Protocolo de Handoff Automático e Transparente" de `AGENTS.md`.
+
+Passo solicitado pelo usuário (opcional): $ARGUMENTS
+
+1. Leia `PROGRESS.md` e `PLAN.md`.
+2. Se houver um passo ativo em `## Checkpoint de Handoff Ativo` (e o usuário não tiver forçado outro ID), assuma-o transparentemente do ponto exato onde o agente anterior (`Claude Code` ou `Gemini CLI`) parou. Caso contrário, escolha o primeiro passo `pendente` cujas dependências estejam `concluído`.
+3. Diga em 1–2 frases qual passo está assumindo/iniciando e o plano de ataque.
+4. Marque o passo como `em andamento` em `PROGRESS.md` com agente `Claude Code` e a data de hoje.
+5. Implemente o escopo do passo e execute os testes e linter (`ruff check .`, `ruff format --check .`, `pytest`) dentro do **WSL `Ubuntu-26.04`** (`wsl -d Ubuntu-26.04 -- bash -lc "cd /mnt/c/gits/pod2bullets && source .venv/bin/activate && ..."`).
+6. Ao passar tudo no WSL, marque o passo como `concluído` em `PROGRESS.md`, limpe o `Checkpoint de Handoff Ativo` e adicione a entrada no fim de `## Log de handoff`.
+

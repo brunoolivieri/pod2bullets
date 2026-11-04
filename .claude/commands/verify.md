@@ -1,0 +1,19 @@
+---
+description: Executa lint (ruff) e testes (pytest) dentro do WSL Ubuntu 26.04 e valida os critérios de aceite
+argument-hint: "[ID do passo opcional, ex.: F2.1]"
+---
+
+Valide o estado atual do código no **WSL `Ubuntu-26.04`** conforme `AGENTS.md` e `PLAN.md`.
+Passo foco (opcional): $ARGUMENTS
+
+1. Execute no WSL `Ubuntu-26.04`:
+   - `ruff check .`
+   - `ruff format --check .`
+   - `pytest -v`
+2. Verifique os critérios de aceite do passo correspondente em `PLAN.md`.
+3. Apresente um relatório curto em pt-BR com:
+   - Resultado do linter (`ruff`);
+   - Resultado dos testes (`pytest`) no WSL `Ubuntu-26.04`;
+   - Checklist dos critérios de aceite do passo;
+   - Comandos para o usuário testar manualmente no WSL se aplicável.
+

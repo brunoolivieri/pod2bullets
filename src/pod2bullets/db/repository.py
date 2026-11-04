@@ -1,0 +1,324 @@
+"""Repository layer for database CRUD operations."""
+
+import sqlite3
+from typing import Optional
+
+from pod2bullets.models import (
+    Episode,
+    EpisodeStatus,
+    Job,
+    JobStatus,
+    PodcastFeed,
+    SubscriptionList,
+    Transcript,
+)
+
+
+class Repository:
+    def __init__(self, conn: sqlite3.Connection):
+        self.conn = conn
+
+    # --- Subscription Lists ---
+    def create_list(
+        self, name: str, slug: str, description: Optional[str] = None
+    ) -> SubscriptionList:
+        cur = self.conn.cursor()
+        cur.execute(
+            "INSERT INTO subscription_lists (name, slug, description, created_at) VALUES (?, ?, ?, datetime('now'))",
+            (name, slug, description),
+        )
+        list_id = cur.lastrowid
+        self.conn.commit()
+        return self.get_list(list_id)
+
+    def get_list(self, list_id: int) -> Optional[SubscriptionList]:
+        cur = self.conn.cursor()
+        cur.execute("SELECT * FROM subscription_lists WHERE id = ?", (list_id,))
+        row = cur.fetchone()
+        return SubscriptionList(**dict(row)) if row else None
+
+    def get_list_by_slug(self, slug: str) -> Optional[SubscriptionList]:
+        cur = self.conn.cursor()
+        cur.execute("SELECT * FROM subscription_lists WHERE slug = ?", (slug,))
+        row = cur.fetchone()
+        return SubscriptionList(**dict(row)) if row else None
+
+    def list_all_lists(self) -> list[SubscriptionList]:
+        cur = self.conn.cursor()
+        cur.execute("SELECT * FROM subscription_lists ORDER BY name ASC")
+        return [SubscriptionList(**dict(r)) for r in cur.fetchall()]
+
+    def delete_list(self, list_id: int) -> bool:
+        cur = self.conn.cursor()
+        cur.execute("DELETE FROM subscription_lists WHERE id = ?", (list_id,))
+        self.conn.commit()
+        return cur.rowcount > 0
+
+    # --- Feeds ---
+    def create_feed(
+        self,
+        title: str,
+        slug: str,
+        rss_url: str,
+        site_url: Optional[str] = None,
+        description: Optional[str] = None,
+        image_url: Optional[str] = None,
+    ) -> PodcastFeed:
+        cur = self.conn.cursor()
+        cur.execute(
+            """INSERT INTO feeds (title, slug, rss_url, site_url, description, image_url, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, datetime('now'))""",
+            (title, slug, rss_url, site_url, description, image_url),
+        )
+        feed_id = cur.lastrowid
+        self.conn.commit()
+        return self.get_feed(feed_id)
+
+    def get_feed(self, feed_id: int) -> Optional[PodcastFeed]:
+        cur = self.conn.cursor()
+        cur.execute("SELECT * FROM feeds WHERE id = ?", (feed_id,))
+        row = cur.fetchone()
+        return PodcastFeed(**dict(row)) if row else None
+
+    def get_feed_by_rss(self, rss_url: str) -> Optional[PodcastFeed]:
+        cur = self.conn.cursor()
+        cur.execute("SELECT * FROM feeds WHERE rss_url = ?", (rss_url,))
+        row = cur.fetchone()
+        return PodcastFeed(**dict(row)) if row else None
+
+    def list_feeds(self, list_id: Optional[int] = None) -> list[PodcastFeed]:
+        cur = self.conn.cursor()
+        if list_id is not None:
+            cur.execute(
+                """SELECT f.* FROM feeds f
+                   JOIN feed_list_members m ON f.id = m.feed_id
+                   WHERE m.list_id = ? ORDER BY f.title ASC""",
+                (list_id,),
+            )
+        else:
+            cur.execute("SELECT * FROM feeds ORDER BY title ASC")
+        return [PodcastFeed(**dict(r)) for r in cur.fetchall()]
+
+    def add_feed_to_list(self, feed_id: int, list_id: int) -> None:
+        cur = self.conn.cursor()
+        cur.execute(
+            "INSERT OR IGNORE INTO feed_list_members (feed_id, list_id) VALUES (?, ?)",
+            (feed_id, list_id),
+        )
+        self.conn.commit()
+
+    def remove_feed_from_list(self, feed_id: int, list_id: int) -> None:
+        cur = self.conn.cursor()
+        cur.execute(
+            "DELETE FROM feed_list_members WHERE feed_id = ? AND list_id = ?",
+            (feed_id, list_id),
+        )
+        self.conn.commit()
+
+    def get_feed_lists(self, feed_id: int) -> list[SubscriptionList]:
+        cur = self.conn.cursor()
+        cur.execute(
+            """SELECT l.* FROM subscription_lists l
+               JOIN feed_list_members m ON l.id = m.list_id
+               WHERE m.feed_id = ? ORDER BY l.name ASC""",
+            (feed_id,),
+        )
+        return [SubscriptionList(**dict(r)) for r in cur.fetchall()]
+
+    # --- Episodes ---
+    def upsert_episode(
+        self,
+        feed_id: int,
+        guid: str,
+        title: str,
+        slug: str,
+        audio_url: str,
+        audio_ext: str = "mp3",
+        published_at: Optional[str] = None,
+        duration_seconds: Optional[int] = None,
+        summary: Optional[str] = None,
+    ) -> Episode:
+        cur = self.conn.cursor()
+        cur.execute(
+            """INSERT INTO episodes (feed_id, guid, title, slug, audio_url, audio_ext, published_at, duration_seconds, summary, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+               ON CONFLICT(feed_id, guid) DO UPDATE SET
+                   title = excluded.title,
+                   slug = excluded.slug,
+                   audio_url = excluded.audio_url,
+                   summary = excluded.summary
+               RETURNING *""",
+            (
+                feed_id,
+                guid,
+                title,
+                slug,
+                audio_url,
+                audio_ext,
+                published_at,
+                duration_seconds,
+                summary,
+            ),
+        )
+        row = cur.fetchone()
+        self.conn.commit()
+        return Episode(**dict(row))
+
+    def get_episode(self, episode_id: int) -> Optional[Episode]:
+        cur = self.conn.cursor()
+        cur.execute("SELECT * FROM episodes WHERE id = ?", (episode_id,))
+        row = cur.fetchone()
+        self.conn.commit()
+        return Episode(**dict(row)) if row else None
+
+    def list_episodes(
+        self,
+        feed_id: Optional[int] = None,
+        status: Optional[EpisodeStatus] = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[Episode]:
+        cur = self.conn.cursor()
+        query = "SELECT * FROM episodes WHERE 1=1"
+        params = []
+        if feed_id:
+            query += " AND feed_id = ?"
+            params.append(feed_id)
+        if status:
+            query += " AND status = ?"
+            params.append(status.value)
+        query += " ORDER BY published_at DESC LIMIT ? OFFSET ?"
+        params.extend([limit, offset])
+        cur.execute(query, tuple(params))
+        return [Episode(**dict(r)) for r in cur.fetchall()]
+
+    def update_episode_status(
+        self,
+        episode_id: int,
+        status: EpisodeStatus,
+        local_audio_path: Optional[str] = None,
+        file_size_bytes: Optional[int] = None,
+        sha256: Optional[str] = None,
+        error_message: Optional[str] = None,
+    ) -> None:
+        cur = self.conn.cursor()
+        updates = ["status = ?"]
+        params = [status.value]
+        if local_audio_path is not None:
+            updates.append("local_audio_path = ?")
+            params.append(local_audio_path)
+        if file_size_bytes is not None:
+            updates.append("file_size_bytes = ?")
+            params.append(file_size_bytes)
+        if sha256 is not None:
+            updates.append("sha256 = ?")
+            params.append(sha256)
+        if error_message is not None:
+            updates.append("error_message = ?")
+            params.append(error_message)
+
+        params.append(episode_id)
+        cur.execute(f"UPDATE episodes SET {', '.join(updates)} WHERE id = ?", tuple(params))
+        self.conn.commit()
+
+    # --- Transcripts ---
+    def record_transcript(
+        self,
+        episode_id: int,
+        model_id: str,
+        engine_name: str,
+        plain_text_path: str,
+        meta_json_path: Optional[str] = None,
+        char_count: int = 0,
+        word_count: int = 0,
+        duration_proc_seconds: Optional[float] = None,
+        language: str = "pt",
+    ) -> Transcript:
+        cur = self.conn.cursor()
+        cur.execute(
+            """INSERT INTO transcripts (episode_id, model_id, engine_name, language, plain_text_path, meta_json_path, char_count, word_count, duration_proc_seconds, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+               ON CONFLICT(episode_id, model_id) DO UPDATE SET
+                   plain_text_path = excluded.plain_text_path,
+                   meta_json_path = excluded.meta_json_path,
+                   char_count = excluded.char_count,
+                   word_count = excluded.word_count,
+                   duration_proc_seconds = excluded.duration_proc_seconds
+               RETURNING *""",
+            (
+                episode_id,
+                model_id,
+                engine_name,
+                language,
+                plain_text_path,
+                meta_json_path,
+                char_count,
+                word_count,
+                duration_proc_seconds,
+            ),
+        )
+        row = cur.fetchone()
+        self.conn.commit()
+        return Transcript(**dict(row))
+
+    def get_transcript(self, episode_id: int, model_id: str) -> Optional[Transcript]:
+        cur = self.conn.cursor()
+        cur.execute(
+            "SELECT * FROM transcripts WHERE episode_id = ? AND model_id = ?",
+            (episode_id, model_id),
+        )
+        row = cur.fetchone()
+        return Transcript(**dict(row)) if row else None
+
+    def list_episode_transcripts(self, episode_id: int) -> list[Transcript]:
+        cur = self.conn.cursor()
+        cur.execute(
+            "SELECT * FROM transcripts WHERE episode_id = ? ORDER BY created_at DESC", (episode_id,)
+        )
+        return [Transcript(**dict(r)) for r in cur.fetchall()]
+
+    # --- Jobs ---
+    def create_job(self, job_type: str, episode_id: int, model_id: Optional[str] = None) -> Job:
+        cur = self.conn.cursor()
+        cur.execute(
+            """INSERT INTO jobs (job_type, episode_id, model_id, status, progress_percent, created_at, updated_at)
+               VALUES (?, ?, ?, 'pending', 0.0, datetime('now'), datetime('now'))
+               RETURNING *""",
+            (job_type, episode_id, model_id),
+        )
+        row = cur.fetchone()
+        self.conn.commit()
+        return Job(**dict(row))
+
+    def get_job(self, job_id: int) -> Optional[Job]:
+        cur = self.conn.cursor()
+        cur.execute("SELECT * FROM jobs WHERE id = ?", (job_id,))
+        row = cur.fetchone()
+        return Job(**dict(row)) if row else None
+
+    def get_next_pending_job(self) -> Optional[Job]:
+        cur = self.conn.cursor()
+        cur.execute("SELECT * FROM jobs WHERE status = 'pending' ORDER BY id ASC LIMIT 1")
+        row = cur.fetchone()
+        return Job(**dict(row)) if row else None
+
+    def update_job_status(
+        self,
+        job_id: int,
+        status: JobStatus,
+        progress_percent: Optional[float] = None,
+        error_message: Optional[str] = None,
+    ) -> None:
+        cur = self.conn.cursor()
+        updates = ["status = ?", "updated_at = datetime('now')"]
+        params = [status.value]
+        if progress_percent is not None:
+            updates.append("progress_percent = ?")
+            params.append(progress_percent)
+        if error_message is not None:
+            updates.append("error_message = ?")
+            params.append(error_message)
+
+        params.append(job_id)
+        cur.execute(f"UPDATE jobs SET {', '.join(updates)} WHERE id = ?", tuple(params))
+        self.conn.commit()

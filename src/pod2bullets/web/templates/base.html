@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}pod2bullets — Podcast & Transcrição Local SOTA{% endblock %}</title>
+    <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <header class="app-header">
+        <a href="/" class="logo">
+            <span class="icon">🎙️</span>
+            <h1>pod2bullets</h1>
+        </a>
+        <div class="header-models">
+            <label for="active-model">Modelo ASR Ativo:</label>
+            <select id="active-model" name="model_id" hx-post="/models/default" hx-swap="none">
+                {% for m in models %}
+                <option value="{{ m.id }}" {% if m.is_default %}selected{% endif %}>
+                    {{ m.name }} {% if m.is_installed %}(Instalado Localmente ✅){% else %}(Nuvem/Download ⚠️){% endif %}
+                </option>
+                {% endfor %}
+            </select>
+            <a href="/models/manage" class="btn-manage-models">⚙️ Gerenciar / Baixar Modelos</a>
+        </div>
+    </header>
+
+    <div class="app-container">
+        <!-- Sidebar: Listas de Subscrições e OPML -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <h2>Listas de Subscrição</h2>
+            </div>
+            <ul class="nav-lists">
+                <li class="{% if not current_list_id %}active{% endif %}">
+                    <a href="/">Todas as Subscrições</a>
+                </li>
+                {% for l in lists %}
+                <li class="{% if current_list_id == l.id %}active{% endif %}">
+                    <a href="/?list_id={{ l.id }}">{{ l.name }}</a>
+                </li>
+                {% endfor %}
+            </ul>
+
+            <div class="sidebar-section">
+                <h3>Nova Lista</h3>
+                <form hx-post="/lists/" hx-swap="none" onsubmit="setTimeout(() => location.reload(), 300)">
+                    <input type="text" name="name" placeholder="Ex: Tecnologia, Notícias" required>
+                    <button type="submit">+ Criar</button>
+                </form>
+            </div>
+
+            <div class="sidebar-section">
+                <h3>Adicionar Podcast</h3>
+                <form hx-post="/feeds/" hx-swap="none" onsubmit="setTimeout(() => location.reload(), 1000)">
+                    <input type="url" name="rss_url" placeholder="URL do Feed RSS/Atom" required>
+                    {% if current_list_id %}
+                    <input type="hidden" name="list_id" value="{{ current_list_id }}">
+                    {% endif %}
+                    <button type="submit">+ Assinar Feed</button>
+                </form>
+                <small class="muted-note">Zero download de áudio ao assinar.</small>
+            </div>
+
+            <div class="sidebar-section opml-section">
+                <h3>OPML</h3>
+                <a class="btn-opml" href="/lists/opml/export">Exportar OPML</a>
+            </div>
+        </aside>
+
+        <!-- Main Content Area -->
+        <main class="main-content">
+            {% block content %}{% endblock %}
+        </main>
+    </div>
+</body>
+</html>
+

@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="transcript-view-container">
+    <div class="transcript-header">
+        <a href="/" class="back-link">← Voltar para lista</a>
+        <h2>{{ episode.title }}</h2>
+        <div class="transcript-actions-bar">
+            {% if transcripts %}
+            <a href="/episodes/{{ episode.id }}/transcripts/{{ transcripts[0].model_id }}/download" class="btn-txt">
+                ⬇️ Baixar Texto Puro (.txt)
+            </a>
+            <button class="btn-copy" onclick="navigator.clipboard.writeText(document.getElementById('transcript-text').innerText); alert('Texto copiado com sucesso!');">
+                📋 Copiar Texto
+            </button>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Models Tabs -->
+    {% if transcripts|length > 1 %}
+    <div class="transcript-tabs">
+        {% for t in transcripts %}
+        <span class="tab-item {% if loop.first %}active{% endif %}">
+            {{ t.model_id }} ({{ t.word_count }} palavras)
+        </span>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    <div class="transcript-content-box">
+        {% if plain_text %}
+        <pre id="transcript-text" class="plain-text-display">{{ plain_text }}</pre>
+        {% else %}
+        <p class="muted">Nenhuma transcrição encontrada para este modelo.</p>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
+

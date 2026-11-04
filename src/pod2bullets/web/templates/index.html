@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="episodes-container">
+    <div class="content-header">
+        <h2>Episódios</h2>
+        <span class="badge-total">{{ episodes|length }} episódios</span>
+    </div>
+
+    {% if not episodes %}
+    <div class="empty-state">
+        <p>Nenhum episódio cadastrado. Adicione a URL de um podcast na barra lateral para carregar os episódios!</p>
+    </div>
+    {% endif %}
+
+    <div class="episodes-list">
+        {% for ep in episodes %}
+        <div class="episode-card" id="ep-card-{{ ep.id }}">
+            <div class="ep-info">
+                <span class="ep-feed">{{ ep.feed_title }}</span>
+                <h3 class="ep-title">{{ ep.title }}</h3>
+                {% if ep.summary %}
+                <p class="ep-summary">{{ ep.summary[:200] }}{% if ep.summary|length > 200 %}...{% endif %}</p>
+                {% endif %}
+                <div class="ep-meta">
+                    <span>Publicado: {{ ep.published_at or 'Desconhecido' }}</span>
+                    {% if ep.duration_seconds %}
+                    <span>Duração: {{ ep.duration_seconds // 60 }} min</span>
+                    {% endif %}
+                </div>
+            </div>
+
+            <div class="ep-actions">
+                {% if ep.status.value == 'available' %}
+                <form hx-post="/episodes/{{ ep.id }}/download" hx-target="#ep-card-{{ ep.id }}" hx-swap="outerHTML">
+                    <select name="model_id" class="select-inline-model">
+                        {% for m in models %}
+                        <option value="{{ m.id }}" {% if m.is_default %}selected{% endif %}>{{ m.name }}</option>
+                        {% endfor %}
+                    </select>
+                    <button type="submit" class="btn-download">⬇️ Baixar e Transcrever</button>
+                </form>
+
+                {% elif ep.status.value in ['queued_download', 'downloading'] %}
+                <div class="status-box downloading" hx-get="/episodes/card/{{ ep.id }}" hx-trigger="every 1s" hx-target="#ep-card-{{ ep.id }}" hx-swap="outerHTML">
+                    <span class="spinner">⏳</span> Baixando áudio sob demanda ({{ ep.progress or 0 }}%)...
+                    <div class="progress-bar-container">
+                        <div class="progress-bar-fill" style="width: {{ ep.progress or 15 }}%;"></div>
+                    </div>
+                </div>
+
+                {% elif ep.status.value in ['queued_transcription', 'transcribing'] %}
+                <div class="status-box transcribing" hx-get="/episodes/card/{{ ep.id }}" hx-trigger="every 1s" hx-target="#ep-card-{{ ep.id }}" hx-swap="outerHTML">
+                    <span class="spinner">⚙️</span> Transcrevendo localmente com IA ({{ ep.progress or 0 }}%)...
+                    <div class="progress-bar-container">
+                        <div class="progress-bar-fill transcribe" style="width: {{ ep.progress or 25 }}%;"></div>
+                    </div>
+                </div>
+
+                {% elif ep.status.value == 'completed' %}
+                <div class="completed-actions">
+                    <span class="badge-completed">✅ Transcrito</span>
+                    <a href="/view/{{ ep.id }}" class="btn-view">📖 Ler na Web</a>
+                    <a href="/episodes/{{ ep.id }}/transcripts/{{ models[0].id }}/download" class="btn-txt">💾 Baixar .txt</a>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endblock %}

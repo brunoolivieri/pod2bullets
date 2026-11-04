@@ -1,0 +1,59 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "pod2bullets"
+version = "0.1.0"
+description = "Podcasts manager with on-demand download and local SOTA transcription"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+    "pydantic>=2.0.0",
+    "pydantic-settings>=2.0.0",
+    "jinja2>=3.1.4",
+    "python-multipart>=0.0.12",
+    "httpx>=0.27.0",
+    "feedparser>=6.0.11",
+    "av>=14.0.0",
+    "numpy>=1.26.0",
+    "typer>=0.12.0",
+    "rich>=13.8.0",
+    "faster-whisper>=1.1.0",
+    "onnx-asr>=0.12.0",
+    "soundfile>=0.12.1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3.0",
+    "pytest-asyncio>=0.24.0",
+    "ruff>=0.7.0",
+]
+
+[project.scripts]
+pod2bullets = "pod2bullets.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/pod2bullets"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W"]
+ignore = ["E501"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src", "."]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+markers = [
+    "real_models: tests that download or load heavy ASR models (deselect with -m 'not real_models')",
+    "slow: slow integration tests",
+]
+

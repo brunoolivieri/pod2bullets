@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="models-container">
+    <div class="content-header">
+        <h2>Gerenciamento de Modelos ASR Locais</h2>
+        <span class="badge-total">{{ models|length }} modelos catalogados</span>
+    </div>
+
+    <!-- HuggingFace Authentication / Token Box -->
+    <div class="hf-auth-box">
+        <h4>🔑 Autenticação Hugging Face (Download Local)</h4>
+        <p>
+            O modelo <strong>whisper-large-v3-turbo</strong> e outros modelos SOTA exigem autenticação do Hugging Face.
+            Você pode fazer login com sua conta Google no Hugging Face e gerar um token gratuito em:
+            <br>
+            <a href="https://huggingface.co/settings/tokens" target="_blank" rel="noopener">https://huggingface.co/settings/tokens (Clique para abrir)</a>
+        </p>
+        <form class="hf-auth-form" hx-post="/models/token" hx-swap="none" onsubmit="alert('Token salvo com sucesso!');">
+            <input type="password" name="token" placeholder="Cole seu User Access Token (ex: hf_...)" required>
+            <button type="submit" style="width: auto; padding: 8px 16px;">Salvar Token</button>
+        </form>
+    </div>
+
+    <div class="episodes-list">
+        {% for m in models %}
+        <div class="model-card" id="model-card-{{ m.id }}">
+            <div class="model-info">
+                <h3>{{ m.name }} {% if m.is_default %}★ (Padrão){% endif %}</h3>
+                <p>{{ m.description }}</p>
+                <span class="model-size">Tamanho em disco: ~{{ m.size_mb }} MB | Repositório: {{ m.source_repo }}</span>
+            </div>
+
+            <div class="model-actions">
+                {% if m.is_installed %}
+                <span class="badge-installed">✅ Instalado em disco</span>
+                {% else %}
+                <form hx-post="/models/{{ m.id }}/download" hx-target="#model-card-{{ m.id }}" hx-swap="outerHTML">
+                    <button type="submit" class="btn-download" style="width: auto;">
+                        ⬇️ Baixar Localmente
+                    </button>
+                </form>
+                {% endif %}
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endblock %}

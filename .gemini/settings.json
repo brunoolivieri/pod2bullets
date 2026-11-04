@@ -1,0 +1,8 @@
+{
+  "contextFileName": ["GEMINI.md", "AGENTS.md"],
+  "env": {
+    "POD2BULLETS_WSL_DISTRO": "Ubuntu-26.04",
+    "POD2BULLETS_WSL_PATH": "/mnt/c/gits/pod2bullets"
+  }
+}
+
