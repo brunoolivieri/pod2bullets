@@ -1,7 +1,6 @@
 """Multi-provider LLM summarization service (ChatGPT, Claude, Gemini, DeepSeek, Qwen)."""
 
 import logging
-import os
 import time
 from pathlib import Path
 from typing import Any
@@ -80,8 +79,6 @@ class LLMService:
         providers_cfg: dict[str, dict[str, Any]] = {}
         for pid, meta in LLM_PROVIDERS.items():
             saved_key = self.repo.get_setting(f"llm_api_key_{pid}", "") or ""
-            env_val = os.environ.get(meta["env_key"], "")
-            effective_key = saved_key or env_val
             saved_model = (
                 self.repo.get_setting(f"llm_model_{pid}", meta["default_model"])
                 or meta["default_model"]
@@ -89,13 +86,13 @@ class LLMService:
             providers_cfg[pid] = {
                 **meta,
                 "model": saved_model,
-                "has_key": bool(effective_key),
+                "has_key": bool(saved_key),
                 "masked_key": (
-                    f"{effective_key[:4]}...{effective_key[-4:]}"
-                    if len(effective_key) > 8
-                    else ("Configurada" if effective_key else "")
+                    f"{saved_key[:4]}...{saved_key[-4:]}"
+                    if len(saved_key) > 8
+                    else ("Configurada" if saved_key else "")
                 ),
-                "api_key": effective_key,
+                "api_key": saved_key,
             }
 
         return {
@@ -127,6 +124,15 @@ class LLMService:
             f"[LLM] Configuração salva via GUI: provedor='{provider}', "
             f"modelo='{model_name or LLM_PROVIDERS[provider]['default_model']}'"
         )
+
+    def clear_api_key(self, provider: str | None = None) -> None:
+        """Delete stored API key(s) from SQLite settings."""
+        cur = self.repo.conn.cursor()
+        if provider:
+            cur.execute("DELETE FROM settings WHERE key = ?", (f"llm_api_key_{provider}",))
+        else:
+            cur.execute("DELETE FROM settings WHERE key LIKE 'llm_api_key_%'")
+        self.repo.conn.commit()
 
     def call_llm_api(
         self,

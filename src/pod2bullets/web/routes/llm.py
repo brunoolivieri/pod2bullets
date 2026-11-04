@@ -146,3 +146,4 @@ def download_summary_txt(summary_id: int):
         media_type="text/plain; charset=utf-8",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
