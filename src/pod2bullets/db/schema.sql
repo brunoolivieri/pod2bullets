@@ -38,6 +38,7 @@ CREATE TABLE IF NOT EXISTS episodes (
     duration_seconds INTEGER,
     audio_url TEXT NOT NULL,
     audio_ext TEXT NOT NULL DEFAULT 'mp3',
+    image_url TEXT,
     summary TEXT,
     status TEXT NOT NULL DEFAULT 'available',
     local_audio_path TEXT,
@@ -65,6 +66,20 @@ CREATE TABLE IF NOT EXISTS transcripts (
     FOREIGN KEY (episode_id) REFERENCES episodes(id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS summaries (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    episode_id INTEGER NOT NULL,
+    transcript_id INTEGER,
+    provider TEXT NOT NULL,
+    model_name TEXT NOT NULL,
+    prompt_used TEXT NOT NULL,
+    summary_text TEXT NOT NULL,
+    summary_path TEXT,
+    duration_proc_seconds REAL,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (episode_id) REFERENCES episodes(id) ON DELETE CASCADE
+);
+
 CREATE TABLE IF NOT EXISTS jobs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     job_type TEXT NOT NULL,
@@ -86,5 +101,5 @@ CREATE TABLE IF NOT EXISTS settings (
 CREATE INDEX IF NOT EXISTS idx_episodes_feed ON episodes(feed_id);
 CREATE INDEX IF NOT EXISTS idx_episodes_status ON episodes(status);
 CREATE INDEX IF NOT EXISTS idx_transcripts_episode ON transcripts(episode_id);
+CREATE INDEX IF NOT EXISTS idx_summaries_episode ON summaries(episode_id);
 CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status);
-

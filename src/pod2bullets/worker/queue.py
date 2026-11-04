@@ -1,4 +1,4 @@
-"""Background worker for automated Download -> Transcription pipeline."""
+"""Background worker for automated Download -> Transcription -> Audio Cleanup pipeline."""
 
 import json
 import logging
@@ -45,13 +45,13 @@ class BackgroundWorker:
             try:
                 processed = self.process_next_job()
                 if not processed:
-                    time.sleep(1.0)
+                    time.sleep(0.8)
             except Exception as e:
                 logger.error(f"[WORKER] Erro inesperado no loop do worker: {e}", exc_info=True)
                 time.sleep(2.0)
 
     def process_next_job(self) -> bool:
-        """Fetch and execute next pending job in queue."""
+        """Fetch and execute next pending job in queue, then delete temporary audio file."""
         conn = get_db_connection(self.db_path)
         repo = Repository(conn)
         job: Job = repo.get_next_pending_job()
@@ -74,8 +74,10 @@ class BackgroundWorker:
                 f"Episódio #{episode.id}: '{episode.title}' | Modelo: {model_id} ==="
             )
 
-            # 1. Download phase (if audio not downloaded yet)
+            # 1. Download phase (downloads if audio is not present on disk)
             audio_path: Path
+            last_db_update = [0.0]
+
             if episode.local_audio_path and Path(episode.local_audio_path).exists():
                 audio_path = Path(episode.local_audio_path)
                 logger.info(f"[WORKER] Áudio já presente em disco: {audio_path}")
@@ -83,10 +85,12 @@ class BackgroundWorker:
                 downloader = DownloaderService(repo)
 
                 def on_dl_progress(p: float):
-                    # 0% - 50% of the job is download
-                    repo.update_job_status(
-                        job.id, JobStatus.RUNNING, progress_percent=round(p * 0.5, 1)
-                    )
+                    now = time.monotonic()
+                    if now - last_db_update[0] >= 0.6 or p >= 99.5:
+                        last_db_update[0] = now
+                        repo.update_job_status(
+                            job.id, JobStatus.RUNNING, progress_percent=round(p * 0.5, 1)
+                        )
 
                 audio_path = downloader.download_episode(
                     episode.id, progress_callback=on_dl_progress
@@ -103,10 +107,12 @@ class BackgroundWorker:
             engine: TranscriberEngine = self.registry.get_engine(model_id)
 
             def on_transcribe_progress(p: float):
-                # 50% - 100% of the job is transcription
-                repo.update_job_status(
-                    job.id, JobStatus.RUNNING, progress_percent=round(50.0 + (p * 0.5), 1)
-                )
+                now = time.monotonic()
+                if now - last_db_update[0] >= 0.6 or p >= 99.5:
+                    last_db_update[0] = now
+                    repo.update_job_status(
+                        job.id, JobStatus.RUNNING, progress_percent=round(50.0 + (p * 0.5), 1)
+                    )
 
             result: TranscriptionResult = engine.transcribe(
                 audio_path=audio_path,
@@ -158,7 +164,15 @@ class BackgroundWorker:
                 duration_proc_seconds=result.duration_proc_seconds,
             )
 
-            repo.update_episode_status(episode.id, EpisodeStatus.COMPLETED)
+            # 4. Delete the audio (.mp3/etc.) file after processing to save disk space (Item 3)
+            if audio_path.exists():
+                audio_path.unlink(missing_ok=True)
+                logger.info(
+                    f"[WORKER] Arquivo de áudio apagado após transcrição concluída: {audio_path} "
+                    "(pode ser reprocessado sob demanda a qualquer momento)"
+                )
+
+            repo.update_episode_status(episode.id, EpisodeStatus.COMPLETED, local_audio_path="")
             repo.update_job_status(job.id, JobStatus.COMPLETED, progress_percent=100.0)
             logger.info(
                 f"[WORKER] === Job #{job.id} CONCLUÍDO! Episódio #{episode.id} transcrito em "

@@ -10,6 +10,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 class Settings(BaseSettings):
     app_name: str = "pod2bullets"
     data_dir: Path = PROJECT_ROOT / "data"
+    logs_dir: Path = PROJECT_ROOT / "logs"
     db_path: Path = PROJECT_ROOT / "data" / "db" / "pod2bullets.sqlite"
     models_dir: Path = PROJECT_ROOT / "data" / "models"
     podcasts_dir: Path = PROJECT_ROOT / "data" / "podcasts"
@@ -26,6 +27,7 @@ class Settings(BaseSettings):
 
     def init_dirs(self) -> None:
         self.data_dir.mkdir(parents=True, exist_ok=True)
+        self.logs_dir.mkdir(parents=True, exist_ok=True)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self.models_dir.mkdir(parents=True, exist_ok=True)
         self.podcasts_dir.mkdir(parents=True, exist_ok=True)

@@ -269,3 +269,23 @@ Qualquer agente (**Claude Code** ou **Gemini CLI**) pode executar qualquer passo
 4. **Dois motores e modelos SOTA complementares (`faster-whisper` + `onnx-asr`):**
    - `whisper-large-v3-turbo` (OpenAI / CTranslate2) e `parakeet-tdt-0.6b-v3` (NVIDIA NeMo / ONNX Runtime) possuem wheels nativos para Python 3.14 no Linux (`cp314` / `py3-none-any`), rodam localmente sem custo e permitem ao usuário escolher entre as duas melhores famílias de ASR open-source da atualidade.
 
+
+
+### Fase 7 — Refinamentos de UX, Limpeza de MP3, Fila Múltipla, Logs Duplos/Viewer e Resumo com LLM (Itens 1 a 12)
+- **F7.1 Sistema de Logs Duplos (`logs/YYYY-MM-DD-HH-MM-APP.log` e `transcricao.log`), Supressão de Polling e Log Viewer em Nova Janela (Itens 8, 9, 10, 11, 12)**
+  - Criar pasta `logs/` na raiz do projeto.
+  - Configurar captura completa do que é impresso no bash/terminal em `logs/YYYY-MM-DD-HH-MM-APP.log` e log dedicado de transcrições em `logs/YYYY-MM-DD-HH-MM-transcricao.log`.
+  - Suprimir logs `200 OK` de rotas de polling (`/episodes/card/*`, `/system/status`, `/models/card/*`, `/logs/tail`) tanto no `uvicorn.access` quanto no middleware HTTP.
+  - Criar rota `GET /logs/viewer` e `GET /logs/tail` com botão no cabeçalho que abre o **Log Viewer** em outra janela acompanhando em tempo real tudo que sai no terminal e nas transcrições.
+- **F7.2 Estabilidade Visual (Sem Piscar), Interface Fluida em Background, Fila de Múltiplas Transcrições e Remoção Automática do `.mp3` Pós-Processamento (Itens 1, 2, 3, 4, 5, 6)**
+  - Remover feedback visual de "Sistema Livre" em `/system/status` (retornar vazio quando ocioso e exibir apenas quando ocupado, sem piscar).
+  - Remover o indicador global `#global-htmx-indicator` ("Processando requisição...") que piscava a cada requisição HTMX.
+  - Apagar automaticamente o arquivo de áudio (`.mp3`/etc.) em `BackgroundWorker` assim que a transcrição terminar e o `.txt` for salvo, mantendo a opção de **"🔄 Reprocessar / Re-transcrever"** sob demanda pelo usuário (que baixa novamente o áudio, transcreve e apaga o `.mp3`).
+  - Permitir enfileirar múltiplas transcrições seguidas pela interface com cliques múltiplos enquanto outra já está processando, exibindo claramente a posição na fila (`🕒 Na fila (#N)`) e mantendo o SQLite responsivo (throttling de updates de progresso e `busy_timeout`).
+  - Destacar claramente os botões **"📖 Ler na Íntegra"** e **"💾 Exportar .TXT"** nos episódios concluídos e na tela de leitura.
+- **F7.3 Integração com LLMs via API para Resumir Transcrições (ChatGPT, Claude, Gemini, DeepSeek e Qwen) com Prompt Editável na GUI (Item 7)**
+  - Criar módulo `src/pod2bullets/llm/service.py` suportando **ChatGPT (OpenAI)**, **Claude (Anthropic)**, **Gemini (Google)**, **DeepSeek** e **Qwen (Alibaba DashScope)** via `httpx`.
+  - Persistir configurações de provedor, modelo, API keys e **Prompt de Resumo** editável na tabela `settings` e resumos gerados na tabela `summaries` + arquivo `.summary.txt`.
+  - Criar interface na GUI (`/llm/settings` e painel integrado em `/view/{episode_id}`) para editar/salvar o prompt, escolher o LLM, gerar o resumo da transcrição e ler/exportar o resumo em `.txt`.
+- **F7.4 Testes Automatizados e Verificação Final no WSL (`Ubuntu-26.04`)**
+  - Adicionar testes cobrindo remoção de `.mp3` pós-transcrição + reprocessamento, fila com múltiplos episódios, geração de resumo via LLM (mockado), criação dos arquivos de log `YYYY-MM-DD-HH-MM-APP` e `transcricao`, Log Viewer e supressão de logs de polling.

@@ -1,4 +1,4 @@
-"""Integration test for the BackgroundWorker pipeline (Download -> Transcription -> .txt)."""
+"""Integration test for the BackgroundWorker pipeline (Download -> Transcription -> .txt -> Delete MP3)."""
 
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -63,14 +63,16 @@ def test_worker_pipeline_e2e(tmp_path: Path, sample_wav: Path):
         processed = worker.process_next_job()
         assert processed is True
 
-    # 2. Verify results
+    # 2. Verify results: job completed and audio file deleted after processing (Item 3)
     updated_job = repo.get_job(job.id)
     assert updated_job.status == JobStatus.COMPLETED
     assert updated_job.progress_percent == 100.0
 
     updated_ep = repo.get_episode(ep.id)
     assert updated_ep.status == EpisodeStatus.COMPLETED
-    assert Path(updated_ep.local_audio_path).exists()
+    assert updated_ep.local_audio_path is None
+    expected_audio = settings.podcasts_dir / feed.slug / ep.slug / "audio.wav"
+    assert not expected_audio.exists()
 
     # 3. Verify .txt file created and readable
     transcripts = repo.list_episode_transcripts(ep.id)

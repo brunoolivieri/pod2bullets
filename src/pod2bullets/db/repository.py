@@ -11,12 +11,28 @@ from pod2bullets.models import (
     PodcastFeed,
     SubscriptionList,
     Transcript,
+    TranscriptSummary,
 )
 
 
 class Repository:
     def __init__(self, conn: sqlite3.Connection):
         self.conn = conn
+
+    # --- Settings ---
+    def get_setting(self, key: str, default: Optional[str] = None) -> Optional[str]:
+        cur = self.conn.cursor()
+        cur.execute("SELECT value FROM settings WHERE key = ?", (key,))
+        row = cur.fetchone()
+        return row["value"] if row else default
+
+    def set_setting(self, key: str, value: str) -> None:
+        cur = self.conn.cursor()
+        cur.execute(
+            "INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            (key, value),
+        )
+        self.conn.commit()
 
     # --- Subscription Lists ---
     def create_list(
@@ -172,7 +188,6 @@ class Repository:
         cur = self.conn.cursor()
         cur.execute("SELECT * FROM episodes WHERE id = ?", (episode_id,))
         row = cur.fetchone()
-        self.conn.commit()
         return Episode(**dict(row)) if row else None
 
     def list_episodes(
@@ -209,10 +224,10 @@ class Repository:
     ) -> None:
         cur = self.conn.cursor()
         updates = ["status = ?"]
-        params = [status.value]
+        params: list = [status.value]
         if local_audio_path is not None:
             updates.append("local_audio_path = ?")
-            params.append(local_audio_path)
+            params.append(local_audio_path or None)
         if file_size_bytes is not None:
             updates.append("file_size_bytes = ?")
             params.append(file_size_bytes)
@@ -283,6 +298,52 @@ class Repository:
         )
         return [Transcript(**dict(r)) for r in cur.fetchall()]
 
+    # --- Summaries (LLM) ---
+    def record_summary(
+        self,
+        episode_id: int,
+        provider: str,
+        model_name: str,
+        prompt_used: str,
+        summary_text: str,
+        transcript_id: Optional[int] = None,
+        summary_path: Optional[str] = None,
+        duration_proc_seconds: Optional[float] = None,
+    ) -> TranscriptSummary:
+        cur = self.conn.cursor()
+        cur.execute(
+            """INSERT INTO summaries (episode_id, transcript_id, provider, model_name, prompt_used, summary_text, summary_path, duration_proc_seconds, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+               RETURNING *""",
+            (
+                episode_id,
+                transcript_id,
+                provider,
+                model_name,
+                prompt_used,
+                summary_text,
+                summary_path,
+                duration_proc_seconds,
+            ),
+        )
+        row = cur.fetchone()
+        self.conn.commit()
+        return TranscriptSummary(**dict(row))
+
+    def list_episode_summaries(self, episode_id: int) -> list[TranscriptSummary]:
+        cur = self.conn.cursor()
+        cur.execute(
+            "SELECT * FROM summaries WHERE episode_id = ? ORDER BY id DESC",
+            (episode_id,),
+        )
+        return [TranscriptSummary(**dict(r)) for r in cur.fetchall()]
+
+    def get_summary(self, summary_id: int) -> Optional[TranscriptSummary]:
+        cur = self.conn.cursor()
+        cur.execute("SELECT * FROM summaries WHERE id = ?", (summary_id,))
+        row = cur.fetchone()
+        return TranscriptSummary(**dict(row)) if row else None
+
     # --- Jobs ---
     def create_job(self, job_type: str, episode_id: int, model_id: Optional[str] = None) -> Job:
         cur = self.conn.cursor()
@@ -302,6 +363,25 @@ class Repository:
         row = cur.fetchone()
         return Job(**dict(row)) if row else None
 
+    def get_active_job_for_episode(self, episode_id: int) -> Optional[Job]:
+        cur = self.conn.cursor()
+        cur.execute(
+            "SELECT * FROM jobs WHERE episode_id = ? AND status IN ('pending', 'running') ORDER BY id DESC LIMIT 1",
+            (episode_id,),
+        )
+        row = cur.fetchone()
+        return Job(**dict(row)) if row else None
+
+    def get_queue_position(self, job_id: int) -> int:
+        """Return 1-based position in the pending/running queue."""
+        cur = self.conn.cursor()
+        cur.execute(
+            "SELECT COUNT(*) AS cnt FROM jobs WHERE status IN ('pending', 'running') AND id <= ?",
+            (job_id,),
+        )
+        row = cur.fetchone()
+        return int(row["cnt"]) if row else 1
+
     def get_next_pending_job(self) -> Optional[Job]:
         cur = self.conn.cursor()
         cur.execute("SELECT * FROM jobs WHERE status = 'pending' ORDER BY id ASC LIMIT 1")
@@ -317,7 +397,7 @@ class Repository:
     ) -> None:
         cur = self.conn.cursor()
         updates = ["status = ?", "updated_at = datetime('now')"]
-        params = [status.value]
+        params: list = [status.value]
         if progress_percent is not None:
             updates.append("progress_percent = ?")
             params.append(progress_percent)

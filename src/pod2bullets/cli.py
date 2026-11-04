@@ -39,7 +39,7 @@ def serve(
     port: int = typer.Option(settings.port, help="Porta HTTP"),
 ):
     """Inicia o servidor Web com background worker de transcrição (modo verbose ativo)."""
-    setup_verbose_logging()
+    setup_verbose_logging(wrap_stdio=True)
     console.print(
         f"[bold cyan]Iniciando pod2bullets (modo verbose) em http://{host}:{port}...[/bold cyan]"
     )

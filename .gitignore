@@ -27,6 +27,8 @@ data/podcasts/*
 !data/podcasts/.gitkeep
 data/tmp/*
 !data/tmp/.gitkeep
+logs/*.log
+!logs/.gitkeep
 
 # Keep directory structure markers
 !data/db/.gitkeep

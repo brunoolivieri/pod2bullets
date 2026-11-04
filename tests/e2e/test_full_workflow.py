@@ -1,11 +1,10 @@
 """End-to-End full workflow test covering:
 1. Subscription lists creation
 2. RSS catalog sync (asserting 0 automatic audio downloaded)
-3. Explicit user on-demand download trigger
-4. Background transcription pipeline with FakeTranscriberEngine
-5. In-browser Web plain text reading
-6. Direct .txt file download
-7. Re-transcribing existing local audio with a 2nd model
+3. Explicit user on-demand download trigger & multi-episode queueing
+4. Background transcription pipeline with FakeTranscriberEngine & automatic audio file deletion
+5. In-browser Web plain text reading & .txt file export
+6. Reprocessing on user demand (re-downloading audio, transcribing with a 2nd model, and deleting audio again)
 """
 
 from pathlib import Path
@@ -72,15 +71,21 @@ def test_full_user_journey_e2e(tmp_path: Path, sample_wav: Path, sample_rss_cont
     episodes = repo.list_episodes(feed_id=feed_id)
     assert len(episodes) == 2
     target_ep = episodes[0]
+    second_ep = episodes[1]
     assert target_ep.status == EpisodeStatus.AVAILABLE
     assert target_ep.local_audio_path is None
 
-    # 3. User explicitly triggers "Baixar e Transcrever" for target_ep with Model 1
-    res = client.post(f"/episodes/{target_ep.id}/download", data={"model_id": "model-1"})
-    assert res.status_code == 200
-    job_id = res.json()["job_id"]
+    # 3. User clicks multiple episodes in the UI to enqueue them sequentially (Item 4)
+    res1 = client.post(f"/episodes/{target_ep.id}/download", data={"model_id": "model-1"})
+    assert res1.status_code == 200
+    job_id = res1.json()["job_id"]
+    assert res1.json()["queue_position"] == 1
 
-    # 4. Background worker processes job: downloads audio and transcribes
+    res2 = client.post(f"/episodes/{second_ep.id}/download", data={"model_id": "model-1"})
+    assert res2.status_code == 200
+    assert res2.json()["queue_position"] == 2
+
+    # 4. Background worker processes first job: downloads audio, transcribes, and deletes MP3
     mock_registry = ModelRegistry(models_dir=tmp_path / "models")
     engine1 = FakeTranscriberEngine(
         "model-1", mock_text="Transcrição Modelo 1: Olá mundo dos podcasts."
@@ -98,12 +103,16 @@ def test_full_user_journey_e2e(tmp_path: Path, sample_wav: Path, sample_rss_cont
     ):
         processed = worker.process_next_job()
         assert processed is True
+        # Process second queued episode too
+        processed_second = worker.process_next_job()
+        assert processed_second is True
 
     job1 = repo.get_job(job_id)
     assert job1.status == JobStatus.COMPLETED
     ep_completed = repo.get_episode(target_ep.id)
     assert ep_completed.status == EpisodeStatus.COMPLETED
-    assert Path(ep_completed.local_audio_path).exists()
+    # Audio file must be deleted after processing (Item 3)
+    assert ep_completed.local_audio_path is None
 
     # 5. Read plain text in Web
     res = client.get(f"/episodes/{target_ep.id}/transcripts/model-1/text")
@@ -116,9 +125,9 @@ def test_full_user_journey_e2e(tmp_path: Path, sample_wav: Path, sample_rss_cont
     assert "attachment" in res.headers["content-disposition"]
     assert res.text == "Transcrição Modelo 1: Olá mundo dos podcasts."
 
-    # 7. Switch to Model 2: re-transcribe existing local audio without re-downloading
-    repo.create_job(job_type="download_and_transcribe", episode_id=target_ep.id, model_id="model-2")
-    # Reset tracking
+    # 7. User requests reprocessing with Model 2: re-downloads audio, transcribes, and deletes MP3 again
+    res_reproc = client.post(f"/episodes/{target_ep.id}/download", data={"model_id": "model-2"})
+    assert res_reproc.status_code == 200
     requested_urls.clear()
     with patch(
         "httpx.Client", return_value=httpx.Client(transport=httpx.MockTransport(mock_transport))
@@ -126,8 +135,9 @@ def test_full_user_journey_e2e(tmp_path: Path, sample_wav: Path, sample_rss_cont
         processed2 = worker.process_next_job()
         assert processed2 is True
 
-    # Check that audio was NOT downloaded again
-    assert len(requested_urls) == 0
+    # Audio was re-downloaded for reprocessing and then deleted again
+    assert len(requested_urls) == 1
+    assert repo.get_episode(target_ep.id).local_audio_path is None
 
     # Verify both models transcripts coexist!
     transcripts = repo.list_episode_transcripts(target_ep.id)

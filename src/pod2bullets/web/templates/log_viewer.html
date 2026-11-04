@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>pod2bullets — Log Viewer em Tempo Real</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <style>
+        body {
+            background: #090d16;
+            color: #e2e8f0;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        .log-toolbar {
+            background: #1e293b;
+            border-bottom: 1px solid #334155;
+            padding: 12px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+        .log-tabs {
+            display: flex;
+            gap: 8px;
+        }
+        .log-tab-btn {
+            background: #0f172a;
+            color: #94a3b8;
+            border: 1px solid #334155;
+            padding: 7px 14px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 0.85rem;
+        }
+        .log-tab-btn.active {
+            background: #2563eb;
+            color: #fff;
+            border-color: #3b82f6;
+        }
+        .log-controls {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            font-size: 0.85rem;
+            color: #cbd5e1;
+        }
+        .log-console {
+            flex: 1;
+            padding: 18px;
+            overflow-y: auto;
+            font-family: "JetBrains Mono", "Fira Code", Consolas, monospace;
+            font-size: 0.85rem;
+            line-height: 1.5;
+            white-space: pre-wrap;
+            word-break: break-word;
+            background: #090d16;
+            color: #a7f3d0;
+        }
+    </style>
+</head>
+<body>
+    <div class="log-toolbar">
+        <div style="display: flex; align-items: center; gap: 12px;">
+            <strong style="font-size: 1rem; color: #fff;">🖥️ pod2bullets Log Viewer</strong>
+            <div class="log-tabs">
+                <button id="tab-app" class="log-tab-btn active" onclick="switchLogType('app')">
+                    🖳 Log do Bash / Sistema ({{ app_log_name }})
+                </button>
+                <button id="tab-tx" class="log-tab-btn" onclick="switchLogType('transcricao')">
+                    🎙️ Log de Transcrições ({{ tx_log_name }})
+                </button>
+            </div>
+        </div>
+
+        <div class="log-controls">
+            <span id="active-file-label" style="color: #60a5fa; font-family: monospace;">{{ app_log_name }}</span>
+            <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                <input type="checkbox" id="autoscroll-chk" checked> Auto-scroll
+            </label>
+            <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                <input type="checkbox" id="pause-chk"> Pausar atualização
+            </label>
+        </div>
+    </div>
+
+    <pre id="log-output" class="log-console">Carregando logs em tempo real...</pre>
+
+    <script>
+        let currentLogType = 'app';
+        let lastContent = '';
+
+        function switchLogType(logType) {
+            currentLogType = logType;
+            lastContent = '';
+            document.getElementById('tab-app').classList.toggle('active', logType === 'app');
+            document.getElementById('tab-tx').classList.toggle('active', logType === 'transcricao');
+            fetchLogs();
+        }
+
+        async function fetchLogs() {
+            if (document.getElementById('pause-chk').checked) {
+                return;
+            }
+            try {
+                const res = await fetch('/logs/tail?log_type=' + encodeURIComponent(currentLogType));
+                if (!res.ok) return;
+                const data = await res.json();
+                document.getElementById('active-file-label').textContent = 'logs/' + data.filename;
+                const pre = document.getElementById('log-output');
+                if (data.content !== lastContent) {
+                    lastContent = data.content;
+                    pre.textContent = data.content || '(Arquivo de log vazio no momento)';
+                    if (document.getElementById('autoscroll-chk').checked) {
+                        pre.scrollTop = pre.scrollHeight;
+                    }
+                }
+            } catch (e) {
+                // Ignore transient errors
+            }
+        }
+
+        fetchLogs();
+        setInterval(fetchLogs, 1200);
+    </script>
+</body>
+</html>

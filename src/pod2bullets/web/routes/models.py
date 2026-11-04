@@ -1,8 +1,9 @@
 """Transcription models selection, discovery and local installation routes."""
 
 import logging
+import threading
 
-from fastapi import APIRouter, BackgroundTasks, Form, HTTPException, Request, Response
+from fastapi import APIRouter, Form, HTTPException, Request, Response
 
 from pod2bullets.config import settings
 from pod2bullets.system_status import activity_tracker
@@ -115,7 +116,7 @@ def uninstall_model_endpoint(model_id: str, request: Request):
 
 
 @router.post("/{model_id}/download")
-def download_model_local(model_id: str, background_tasks: BackgroundTasks):
+def download_model_local(model_id: str):
     meta = CATALOG.get(model_id)
     if not meta:
         raise HTTPException(status_code=404, detail="Modelo não encontrado")
@@ -129,7 +130,7 @@ def download_model_local(model_id: str, background_tasks: BackgroundTasks):
         except Exception as e:
             logger.error(f"[MODEL] Falha ao instalar '{model_id}': {e}", exc_info=True)
 
-    background_tasks.add_task(_run_install)
+    threading.Thread(target=_run_install, name=f"install-{model_id}", daemon=True).start()
 
     return Response(
         content=f"""

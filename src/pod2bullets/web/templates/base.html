@@ -7,7 +7,7 @@
     <script src="https://unpkg.com/htmx.org@1.9.12"></script>
     <link rel="stylesheet" href="/static/style.css">
 </head>
-<body hx-indicator="#global-htmx-indicator">
+<body>
     <header class="app-header">
         <div class="header-left">
             <a href="/" class="logo">
@@ -15,25 +15,15 @@
                 <h1>pod2bullets</h1>
             </a>
 
-            <!-- Indicador de Sistema Ocupado (Ampulheta ao vivo via polling + HTMX request indicator) -->
+            <!-- Indicador de Sistema Ocupado: aparece APENAS quando ocupado (sem piscar quando livre) -->
             <div id="system-status-container"
                  hx-get="/system/status"
-                 hx-trigger="load, every 1.5s"
-                 hx-swap="innerHTML">
-                <div class="system-status idle">
-                    <span class="idle-dot">●</span>
-                    <span class="idle-text">Sistema Livre</span>
-                </div>
-            </div>
-
-            <div id="global-htmx-indicator" class="htmx-indicator system-status busy">
-                <span class="hourglass-icon">⏳</span>
-                <span class="busy-text">Processando requisição...</span>
-            </div>
+                 hx-trigger="load, every 2s"
+                 hx-swap="innerHTML"></div>
         </div>
 
         <div class="header-models">
-            <label for="active-model">Modelo ASR Ativo:</label>
+            <label for="active-model">Modelo ASR:</label>
             <select id="active-model" name="model_id" hx-post="/models/default" hx-swap="none">
                 {% for m in models %}
                 <option value="{{ m.id }}" {% if m.is_default %}selected{% endif %}>
@@ -42,7 +32,14 @@
                 {% endfor %}
             </select>
             <a href="/models/manage" class="btn-manage-models">⚙️ Modelos Locais</a>
-            <a href="/feeds/manage" class="btn-manage-models">📻 Gerenciar Inscrições</a>
+            <a href="/feeds/manage" class="btn-manage-models">📻 Inscrições</a>
+            <a href="/llm/settings" class="btn-manage-models">🤖 Resumo LLM / Prompt</a>
+            <a href="/logs/viewer"
+               target="_blank"
+               onclick="window.open('/logs/viewer', 'pod2bullets_log_viewer', 'width=1080,height=720,resizable=yes,scrollbars=yes'); return false;"
+               class="btn-manage-models btn-log-viewer">
+                🖥️ Abrir Log Viewer
+            </a>
         </div>
     </header>
 

@@ -62,3 +62,16 @@ Especificação detalhada de cada passo em [PLAN.md](PLAN.md#5-passos-de-execuç
 - **Verificação (WSL Ubuntu-26.04):**
   - `ruff check .` e `ruff format --check .`: OK (50 arquivos formatados).
   - `pytest -v`: **19 passed in 6.33s**.
+
+
+### 2026-11-04 — Execução da Fase 7 (Itens 1 a 12: Sem Piscar, Limpeza de MP3, Fila Múltipla, Resumo LLM e Logs Duplos + Viewer) — Gemini CLI
+- **Feito:**
+  - **Itens 1 e 2 (Fim do Piscar na Interface):** `GET /system/status` retorna vazio (`""`) quando o sistema está ocioso (exibindo apenas a ampulheta `⏳ Sistema Ocupado` quando há trabalho real) e removido o `#global-htmx-indicator` ("Processando requisição...") que piscava a cada polling HTMX.
+  - **Item 3 (Remoção do `.mp3` pós-processamento + Reprocessamento sob demanda):** `BackgroundWorker` apaga automaticamente o arquivo de áudio (`audio_path.unlink()`) assim que o `.txt` e `.meta.json` são gravados, adicionando o botão **"🔄 Reprocessar"** nos episódios concluídos e na tela de leitura para baixar novamente e re-transcrever quando solicitado.
+  - **Itens 4 e 5 (Fila com Múltiplos Cliques + Fluidez em Background):** `POST /episodes/{id}/download` enfileira múltiplos episódios clicados em sequência exibindo a posição na fila (`🕒 Na fila de processamento (#N)`), com throttling de updates de progresso no SQLite e `busy_timeout=30000` + thread dedicada para download de modelos.
+  - **Item 6 (Leitura na Íntegra e Exportação `.TXT`):** Botões **"📖 Ler na Íntegra"** e **"💾 Exportar .TXT"** nos cards de episódios e na página `/view/{episode_id}`.
+  - **Item 7 (Resumo de Transcrições via LLM com Prompt Editável na GUI):** Criados `src/pod2bullets/llm/service.py`, `src/pod2bullets/web/routes/llm.py` e `llm_settings.html` suportando **ChatGPT (OpenAI)**, **Claude (Anthropic)**, **Gemini (Google)**, **DeepSeek** e **Qwen (Alibaba DashScope)**, com edição/salvamento do prompt via GUI e exportação do resumo em `.txt`.
+  - **Itens 8, 9, 10, 11 e 12 (Logs Duplos em `logs/`, Log Viewer em Outra Janela e Supressão de Polling):** `logging_config.py` grava tudo que sai no bash em `logs/YYYY-MM-DD-HH-MM-APP.log` e logs de transcrição em `logs/YYYY-MM-DD-HH-MM-transcricao.log`, suprime as linhas `200 OK` de `/episodes/card/*`, `/system/status`, `/models/card/*` e `/logs/tail`, e disponibiliza o botão **"🖥️ Abrir Log Viewer"** (`/logs/viewer`) em janela separada.
+- **Verificação (WSL Ubuntu-26.04):**
+  - `ruff check .` e `ruff format --check .`: OK.
+  - `pytest -v`: **19 passed in 7.73s**.

@@ -225,3 +225,80 @@ body { background: var(--bg-color); color: var(--text-main); height: 100vh; disp
 .model-info p { color: var(--text-muted); font-size: 0.9rem; line-height: 1.4; margin-bottom: 6px; }
 .model-size { font-size: 0.8rem; color: #64748b; }
 .badge-installed { color: var(--success); font-weight: 700; }
+
+
+/* Queue, Reprocess, Log Viewer & LLM Summarization Styles */
+.status-box.queued {
+    background: rgba(148, 163, 184, 0.14);
+    color: #cbd5e1;
+    border: 1px solid #64748b;
+}
+
+.btn-reprocess {
+    background: #475569;
+    color: #fff;
+    border: 1px solid #64748b;
+    padding: 6px 12px;
+    border-radius: 6px;
+    font-size: 0.78rem;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+}
+.btn-reprocess:hover {
+    background: #3b82f6;
+    border-color: #2563eb;
+}
+
+.btn-log-viewer {
+    background: #0f172a;
+    border-color: #3b82f6;
+    color: #60a5fa;
+}
+.btn-log-viewer:hover {
+    background: #1e3a8a;
+    color: #fff;
+}
+
+.llm-summary-panel {
+    background: #0f172a;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 20px;
+}
+
+.llm-form-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 14px;
+}
+
+.llm-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.llm-field label {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--text-muted);
+}
+
+.llm-field select,
+.llm-field input,
+.llm-prompt-textarea {
+    background: #1e293b;
+    border: 1px solid var(--border-color);
+    color: #fff;
+    padding: 9px 12px;
+    border-radius: 6px;
+    font-size: 0.9rem;
+}
+
+.llm-prompt-textarea {
+    width: 100%;
+    resize: vertical;
+    line-height: 1.45;
+    font-family: inherit;
+}

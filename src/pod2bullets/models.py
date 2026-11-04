@@ -85,6 +85,19 @@ class Transcript(BaseModel):
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
+class TranscriptSummary(BaseModel):
+    id: Optional[int] = None
+    episode_id: int
+    transcript_id: Optional[int] = None
+    provider: str
+    model_name: str
+    prompt_used: str
+    summary_text: str
+    summary_path: Optional[str] = None
+    duration_proc_seconds: Optional[float] = None
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
 class Job(BaseModel):
     id: Optional[int] = None
     job_type: JobType

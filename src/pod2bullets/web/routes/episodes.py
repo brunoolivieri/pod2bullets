@@ -1,4 +1,4 @@
-"""Episode listing, on-demand download trigger, web reading & .txt download routes."""
+"""Episode listing, multi-item queue trigger, web reading, .txt export & reprocessing routes."""
 
 import logging
 from pathlib import Path
@@ -9,6 +9,7 @@ from pod2bullets.config import settings
 from pod2bullets.db.connection import get_db_connection
 from pod2bullets.db.repository import Repository
 from pod2bullets.models import EpisodeStatus
+from pod2bullets.transcriber.registry import ModelRegistry
 
 logger = logging.getLogger("pod2bullets.web.episodes")
 
@@ -40,59 +41,78 @@ def get_episode_card(episode_id: int):
     proc_time = transcripts[0].duration_proc_seconds if transcripts else None
     tx_model_id = transcripts[0].model_id if transcripts else settings.default_model_id
 
-    # Get active job progress if any
+    active_job = repo.get_active_job_for_episode(episode_id)
+    q_pos = repo.get_queue_position(active_job.id) if active_job else 1
+
     cur = conn.cursor()
     cur.execute(
-        "SELECT progress_percent FROM jobs WHERE episode_id = ? ORDER BY id DESC LIMIT 1",
+        "SELECT progress_percent, status, model_id FROM jobs WHERE episode_id = ? ORDER BY id DESC LIMIT 1",
         (episode_id,),
     )
     job_row = cur.fetchone()
-    progress = job_row["progress_percent"] if job_row else 0.0
+    progress = float(job_row["progress_percent"]) if job_row else 0.0
+    job_status = job_row["status"] if job_row else ""
+    job_model = (job_row["model_id"] if job_row else None) or settings.default_model_id
     conn.close()
 
-    # Return partial card HTML for HTMX polling
-    progress_bar = (
-        f"""
-    <div class="progress-bar-container">
-        <div class="progress-bar-fill" style="width: {max(progress, 15)}%;"></div>
-    </div>
-    """
-        if ep.status.value in ["queued_download", "downloading"]
-        else f"""
-    <div class="progress-bar-container">
-        <div class="progress-bar-fill transcribe" style="width: {max(progress, 25)}%;"></div>
-    </div>
-    """
+    all_models = ModelRegistry().list_models()
+    model_options_html = "".join(
+        f'<option value="{m.id}" {"selected" if m.is_default else ""}>{m.name}</option>'
+        for m in all_models
     )
 
     status_html = ""
-    if ep.status.value in ["queued_download", "downloading"]:
+    if ep.status.value == "queued_download" and job_status == "pending":
         status_html = f"""
-        <div class="status-box downloading" hx-get="/episodes/card/{ep.id}" hx-trigger="every 1s" hx-target="#ep-card-{ep.id}" hx-swap="outerHTML">
+        <div class="status-box queued" hx-get="/episodes/card/{ep.id}" hx-trigger="every 1.5s" hx-target="#ep-card-{ep.id}" hx-swap="outerHTML">
+            <div><span>🕒</span> Na fila de processamento (#{q_pos}) — Modelo: <code>{job_model}</code></div>
+            <div class="progress-bar-container">
+                <div class="progress-bar-fill" style="width: 8%; opacity: 0.6;"></div>
+            </div>
+        </div>
+        """
+    elif ep.status.value in ["queued_download", "downloading"]:
+        status_html = f"""
+        <div class="status-box downloading" hx-get="/episodes/card/{ep.id}" hx-trigger="every 1.2s" hx-target="#ep-card-{ep.id}" hx-swap="outerHTML">
             <div><span class="hourglass-icon">⏳</span> Baixando áudio sob demanda ({progress}%)...</div>
-            {progress_bar}
+            <div class="progress-bar-container">
+                <div class="progress-bar-fill" style="width: {max(progress, 12)}%;"></div>
+            </div>
         </div>
         """
     elif ep.status.value in ["queued_transcription", "transcribing"]:
         status_html = f"""
-        <div class="status-box transcribing" hx-get="/episodes/card/{ep.id}" hx-trigger="every 1s" hx-target="#ep-card-{ep.id}" hx-swap="outerHTML">
-            <div><span class="hourglass-icon">⏳</span> Transcrevendo localmente com IA ({progress}%)...</div>
-            {progress_bar}
+        <div class="status-box transcribing" hx-get="/episodes/card/{ep.id}" hx-trigger="every 1.2s" hx-target="#ep-card-{ep.id}" hx-swap="outerHTML">
+            <div><span class="hourglass-icon">⏳</span> Transcrevendo com {job_model} ({progress}%)...</div>
+            <div class="progress-bar-container">
+                <div class="progress-bar-fill transcribe" style="width: {max(progress, 50)}%;"></div>
+            </div>
         </div>
         """
     elif ep.status.value == "completed":
         proc_html = (
             f'<span class="proc-time-label" style="font-size: 0.78rem; color: #94a3b8;">'
-            f"⏱️ Tempo: {proc_time}s</span>"
+            f"⏱️ Tempo: {proc_time}s | 🧹 MP3 removido</span>"
             if proc_time is not None
-            else ""
+            else '<span class="proc-time-label" style="font-size: 0.78rem; color: #94a3b8;">🧹 MP3 removido</span>'
         )
         status_html = f"""
         <div class="completed-actions">
             <span class="badge-completed">✅ Transcrito</span>
             {proc_html}
-            <a href="/view/{ep.id}" class="btn-view">📖 Ler na Web</a>
-            <a href="/episodes/{ep.id}/transcripts/{tx_model_id}/download" class="btn-txt">💾 Baixar .txt</a>
+            <div style="display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end;">
+                <a href="/view/{ep.id}" class="btn-view">📖 Ler na Íntegra</a>
+                <a href="/episodes/{ep.id}/transcripts/{tx_model_id}/download" class="btn-txt">💾 Exportar .TXT</a>
+                <a href="/view/{ep.id}#resumo-ia" class="btn-copy">✨ Resumir (LLM)</a>
+            </div>
+            <form hx-post="/episodes/{ep.id}/download" hx-target="#ep-card-{ep.id}" hx-swap="outerHTML" style="display: flex; gap: 6px; margin-top: 6px; width: 100%;">
+                <select name="model_id" class="select-inline-model" style="margin-bottom: 0; padding: 5px; font-size: 0.78rem;">
+                    {model_options_html}
+                </select>
+                <button type="submit" class="btn-reprocess" title="Baixar novamente o áudio e reprocessar transcrição">
+                    🔄 Reprocessar
+                </button>
+            </form>
         </div>
         """
     elif ep.status.value == "failed":
@@ -100,7 +120,10 @@ def get_episode_card(episode_id: int):
         status_html = f"""
         <div class="completed-actions">
             <span style="color: #ef4444; font-size: 0.8rem; font-weight: 600;" title="{err_msg}">❌ Falhou: {err_msg}</span>
-            <form hx-post="/episodes/{ep.id}/download" hx-target="#ep-card-{ep.id}" hx-swap="outerHTML">
+            <form hx-post="/episodes/{ep.id}/download" hx-target="#ep-card-{ep.id}" hx-swap="outerHTML" style="width: 100%;">
+                <select name="model_id" class="select-inline-model">
+                    {model_options_html}
+                </select>
                 <button type="submit" class="btn-download">🔄 Tentar Novamente</button>
             </form>
         </div>
@@ -108,6 +131,9 @@ def get_episode_card(episode_id: int):
     else:
         status_html = f"""
         <form hx-post="/episodes/{ep.id}/download" hx-target="#ep-card-{ep.id}" hx-swap="outerHTML">
+            <select name="model_id" class="select-inline-model">
+                {model_options_html}
+            </select>
             <button type="submit" class="btn-download">⬇️ Baixar e Transcrever</button>
         </form>
         """
@@ -152,7 +178,7 @@ def trigger_download_and_transcribe(
     request: Request,
     model_id: str | None = Form(None),
 ):
-    """User explicitly clicked to download and transcribe an episode."""
+    """User clicked to queue download and transcription (supports queueing multiple episodes concurrently)."""
     conn = get_db_connection()
     repo = Repository(conn)
     ep = repo.get_episode(episode_id)
@@ -161,20 +187,41 @@ def trigger_download_and_transcribe(
         raise HTTPException(status_code=404, detail="Episódio não encontrado")
 
     chosen_model = model_id or settings.default_model_id
+
+    # Avoid duplicate pending job if the user double-clicked the exact same active episode
+    active_job = repo.get_active_job_for_episode(episode_id)
+    if active_job:
+        q_pos = repo.get_queue_position(active_job.id)
+        conn.close()
+        if request.headers.get("hx-request"):
+            return get_episode_card(episode_id)
+        return {
+            "status": "already_queued",
+            "job_id": active_job.id,
+            "queue_position": q_pos,
+            "model_id": active_job.model_id or chosen_model,
+        }
+
     repo.update_episode_status(episode_id, EpisodeStatus.QUEUED_DOWNLOAD)
     job = repo.create_job(
         job_type="download_and_transcribe",
         episode_id=episode_id,
         model_id=chosen_model,
     )
+    q_pos = repo.get_queue_position(job.id)
     conn.close()
     logger.info(
-        f"[QUEUE] Episódio #{episode_id} '{ep.title}' enfileirado para download + transcrição "
-        f"(Job #{job.id}, modelo='{chosen_model}')"
+        f"[QUEUE] Episódio #{episode_id} '{ep.title}' adicionado à fila de transcrição "
+        f"(Job #{job.id}, Posição na fila: #{q_pos}, Modelo: '{chosen_model}')"
     )
     if request.headers.get("hx-request"):
         return get_episode_card(episode_id)
-    return {"status": "queued", "job_id": job.id, "model_id": chosen_model}
+    return {
+        "status": "queued",
+        "job_id": job.id,
+        "queue_position": q_pos,
+        "model_id": chosen_model,
+    }
 
 
 @router.get("/{episode_id}/transcripts/{model_id}/text")
