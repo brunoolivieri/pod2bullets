@@ -1,5 +1,6 @@
 """Multi-provider LLM summarization service (ChatGPT, Claude, Gemini, DeepSeek, Qwen)
-supporting both text-transcript summarization and direct audio-to-summary via LLM API.
+supporting both text-transcript summarization and direct audio-to-summary via LLM API
+(including chunked Resumable File API upload for large podcast MP3s and automatic model fallback).
 """
 
 import base64
@@ -25,12 +26,24 @@ DEFAULT_SUMMARY_PROMPT = (
     "3. **Destaques e Conclusões:** Insights práticos e aprendizados finais do episódio."
 )
 
+GEMINI_FALLBACK_MODELS = [
+    "gemini-3.6-flash",
+    "gemini-3.5-flash",
+    "gemini-3.8-flash",
+    "gemini-3.5-flash-lite",
+]
+
 LLM_PROVIDERS: dict[str, dict[str, Any]] = {
     "gemini": {
         "id": "gemini",
         "name": "Gemini (Google)",
-        "default_model": "gemini-2.5-flash",
-        "suggested_models": ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.0-flash"],
+        "default_model": "gemini-3.6-flash",
+        "suggested_models": [
+            "gemini-3.6-flash",
+            "gemini-3.5-flash",
+            "gemini-3.8-flash",
+            "gemini-3.5-flash-lite",
+        ],
         "supports_direct_audio": True,
         "base_url": "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
         "env_key": "GEMINI_API_KEY",
@@ -85,10 +98,30 @@ LLM_PROVIDERS: dict[str, dict[str, Any]] = {
 }
 
 
+def _raise_with_api_detail(resp: httpx.Response, provider_name: str) -> None:
+    """Raise a clear error including the provider's JSON error message when HTTP >= 400."""
+    if resp.status_code < 400:
+        return
+    detail = resp.text[:400]
+    try:
+        err_json = resp.json()
+        if isinstance(err_json, dict) and "error" in err_json:
+            err_obj = err_json["error"]
+            if isinstance(err_obj, dict) and "message" in err_obj:
+                detail = err_obj["message"]
+            else:
+                detail = str(err_obj)
+    except Exception:
+        pass
+    raise RuntimeError(f"Erro HTTP {resp.status_code} na API {provider_name}: {detail}")
+
+
 class LLMService:
     def __init__(self, repo: Repository, client: httpx.Client | None = None):
         self.repo = repo
-        self.client = client or httpx.Client(timeout=180.0)
+        self.client = client or httpx.Client(
+            timeout=httpx.Timeout(connect=30.0, read=600.0, write=300.0, pool=30.0)
+        )
 
     def get_config(self) -> dict[str, Any]:
         """Return current LLM configuration, registered providers, and last selected provider."""
@@ -115,6 +148,11 @@ class LLMService:
                 self.repo.get_setting(f"llm_model_{pid}", meta["default_model"])
                 or meta["default_model"]
             )
+            # Auto-upgrade deprecated gemini-2.5-flash to gemini-3.6-flash
+            if pid == "gemini" and saved_model == "gemini-2.5-flash":
+                saved_model = "gemini-3.6-flash"
+                self.repo.set_setting("llm_model_gemini", saved_model)
+
             entry = {
                 **meta,
                 "model": saved_model,
@@ -130,7 +168,6 @@ class LLMService:
             if saved_key:
                 registered_list.append(entry)
 
-        # If the remembered provider has no key but another registered provider does, prefer the registered one
         if registered_list and not providers_cfg[last_direct_provider]["has_key"]:
             last_direct_provider = registered_list[0]["id"]
 
@@ -164,7 +201,8 @@ class LLMService:
         if prompt is not None and prompt.strip():
             self.repo.set_setting("llm_prompt", prompt.strip())
         if model_name is not None and model_name.strip():
-            self.repo.set_setting(f"llm_model_{provider}", model_name.strip())
+            clean_m = model_name.strip().removeprefix("models/")
+            self.repo.set_setting(f"llm_model_{provider}", clean_m)
         if api_key is not None and api_key.strip():
             self.repo.set_setting(f"llm_api_key_{provider}", api_key.strip())
 
@@ -189,6 +227,151 @@ class LLMService:
             cur.execute("DELETE FROM settings WHERE key LIKE 'llm_api_key_%'")
             logger.info("[LLM] Todas as chaves de API foram removidas.")
         self.repo.conn.commit()
+
+    def _call_gemini_with_fallback(
+        self,
+        preferred_model: str,
+        api_key: str,
+        parts: list[dict[str, Any]],
+    ) -> tuple[str, str]:
+        """Call Gemini generateContent and automatically fallback if a model returns 404 (deprecated) or 503 (busy)."""
+        clean_pref = preferred_model.strip().removeprefix("models/")
+        candidates_to_try = [clean_pref] + [m for m in GEMINI_FALLBACK_MODELS if m != clean_pref]
+        headers = {
+            "x-goog-api-key": api_key,
+            "Content-Type": "application/json",
+        }
+        payload = {"contents": [{"parts": parts}]}
+
+        last_resp: httpx.Response | None = None
+        for idx, model_candidate in enumerate(candidates_to_try):
+            url = LLM_PROVIDERS["gemini"]["base_url"].format(model=model_candidate)
+            logger.info(
+                f"[LLM] Chamando Gemini generateContent com modelo '{model_candidate}' "
+                f"(tentativa {idx + 1}/{len(candidates_to_try)})..."
+            )
+            resp = self.client.post(url, headers=headers, json=payload)
+            last_resp = resp
+            if resp.status_code == 200:
+                data = resp.json()
+                cands = data.get("candidates", [])
+                if not cands:
+                    raise RuntimeError(f"Resposta sem candidatos da API Gemini: {data}")
+                out_parts = cands[0].get("content", {}).get("parts", [])
+                text = "\n".join(p.get("text", "") for p in out_parts if "text" in p).strip()
+                if model_candidate != clean_pref:
+                    logger.info(
+                        f"[LLM] Modelo '{model_candidate}' respondeu com sucesso! "
+                        f"Atualizando modelo padrão do Gemini para '{model_candidate}'."
+                    )
+                    self.repo.set_setting("llm_model_gemini", model_candidate)
+                return text, model_candidate
+
+            if resp.status_code in (404, 503) and idx + 1 < len(candidates_to_try):
+                logger.warning(
+                    f"[LLM] Modelo Gemini '{model_candidate}' retornou HTTP {resp.status_code} "
+                    f"({resp.text[:160].strip()}). Tentando fallback automático '{candidates_to_try[idx + 1]}'..."
+                )
+                continue
+
+            _raise_with_api_detail(resp, "Gemini")
+
+        if last_resp is not None:
+            _raise_with_api_detail(last_resp, "Gemini")
+        raise RuntimeError("Falha ao comunicar com a API Gemini.")
+
+    def _upload_to_gemini_files_api(
+        self,
+        audio_path: Path,
+        mime_type: str,
+        api_key: str,
+        progress_callback: Callable[[float], None] | None = None,
+    ) -> dict[str, str]:
+        """Upload large podcast audio files (>4MB) via Google's Resumable File API in 8 MiB chunks."""
+        total_size = audio_path.stat().st_size
+        total_mb = total_size / (1024 * 1024)
+        logger.info(
+            f"[LLM-DIRETO] Iniciando upload resumível para Gemini File API "
+            f"({total_mb:.1f} MB, arquivo='{audio_path.name}')..."
+        )
+
+        start_resp = self.client.post(
+            "https://generativelanguage.googleapis.com/upload/v1beta/files",
+            headers={
+                "x-goog-api-key": api_key,
+                "X-Goog-Upload-Protocol": "resumable",
+                "X-Goog-Upload-Command": "start",
+                "X-Goog-Upload-Header-Content-Length": str(total_size),
+                "X-Goog-Upload-Header-Content-Type": mime_type,
+                "Content-Type": "application/json",
+            },
+            json={"file": {"display_name": audio_path.name}},
+        )
+        _raise_with_api_detail(start_resp, "Gemini File Upload (start)")
+        upload_url = start_resp.headers.get("x-goog-upload-url")
+        if not upload_url:
+            raise RuntimeError("Gemini File API não retornou o header x-goog-upload-url.")
+
+        chunk_size = 8 * 1024 * 1024  # 8 MiB (required multiple for Google resumable protocol)
+        offset = 0
+        final_json: dict[str, Any] = {}
+
+        with open(audio_path, "rb") as f:
+            while offset < total_size:
+                chunk = f.read(chunk_size)
+                if not chunk:
+                    break
+                is_last = (offset + len(chunk)) >= total_size
+                cmd = "upload, finalize" if is_last else "upload"
+
+                up_resp = self.client.post(
+                    upload_url,
+                    headers={
+                        "Content-Length": str(len(chunk)),
+                        "X-Goog-Upload-Offset": str(offset),
+                        "X-Goog-Upload-Command": cmd,
+                    },
+                    content=chunk,
+                )
+                _raise_with_api_detail(up_resp, "Gemini File Upload (chunk)")
+                offset += len(chunk)
+                pct_upload = (offset / total_size) * 100.0
+                logger.info(
+                    f"[LLM-DIRETO] Upload Gemini File API: {offset / (1024 * 1024):.1f} / "
+                    f"{total_mb:.1f} MB ({pct_upload:.1f}%)"
+                )
+                if progress_callback:
+                    # Map upload progress to 10%..75% of LLM phase
+                    progress_callback(10.0 + (pct_upload * 0.65))
+
+                if is_last:
+                    final_json = up_resp.json()
+
+        file_info = final_json.get("file", {})
+        file_name = file_info.get("name", "")
+        file_uri = file_info.get("uri", "")
+        state = file_info.get("state", "ACTIVE")
+
+        # Wait until Google marks the audio file ACTIVE
+        polls = 0
+        while state == "PROCESSING" and polls < 60:
+            time.sleep(2.0)
+            polls += 1
+            chk = self.client.get(
+                f"https://generativelanguage.googleapis.com/v1beta/{file_name}",
+                headers={"x-goog-api-key": api_key},
+            )
+            if chk.status_code == 200:
+                f_data = chk.json()
+                state = f_data.get("state", "ACTIVE")
+                file_uri = f_data.get("uri", file_uri)
+                logger.info(f"[LLM-DIRETO] Processando arquivo no Gemini ({state})...")
+
+        if state not in ("ACTIVE", ""):
+            raise RuntimeError(f"Arquivo enviado ao Gemini ficou com estado inválido: {state}")
+
+        logger.info(f"[LLM-DIRETO] Upload concluído e ativo no Gemini: {file_uri}")
+        return {"name": file_name, "uri": file_uri}
 
     def call_llm_api(
         self,
@@ -228,7 +411,7 @@ class LLMService:
                 "temperature": 0.3,
             }
             resp = self.client.post(url, headers=headers, json=payload)
-            resp.raise_for_status()
+            _raise_with_api_detail(resp, meta["name"])
             data = resp.json()
             return data["choices"][0]["message"]["content"].strip()
 
@@ -245,7 +428,7 @@ class LLMService:
                 "messages": [{"role": "user", "content": full_user_message}],
             }
             resp = self.client.post(url, headers=headers, json=payload)
-            resp.raise_for_status()
+            _raise_with_api_detail(resp, meta["name"])
             data = resp.json()
             content_blocks = data.get("content", [])
             return "\n".join(
@@ -253,28 +436,12 @@ class LLMService:
             ).strip()
 
         if provider == "gemini":
-            url = meta["base_url"].format(model=model_name)
-            headers = {
-                "x-goog-api-key": api_key,
-                "Content-Type": "application/json",
-            }
-            payload = {
-                "contents": [
-                    {
-                        "parts": [
-                            {"text": full_user_message},
-                        ]
-                    }
-                ]
-            }
-            resp = self.client.post(url, headers=headers, json=payload)
-            resp.raise_for_status()
-            data = resp.json()
-            candidates = data.get("candidates", [])
-            if not candidates:
-                raise RuntimeError(f"Resposta vazia da API Gemini: {data}")
-            parts = candidates[0].get("content", {}).get("parts", [])
-            return "\n".join(p.get("text", "") for p in parts).strip()
+            text, _ = self._call_gemini_with_fallback(
+                preferred_model=model_name,
+                api_key=api_key,
+                parts=[{"text": full_user_message}],
+            )
+            return text
 
         raise ValueError(f"Provedor não suportado: {provider}")
 
@@ -285,7 +452,8 @@ class LLMService:
         api_key: str,
         prompt: str,
         audio_path: Path,
-    ) -> str:
+        progress_callback: Callable[[float], None] | None = None,
+    ) -> tuple[str, str]:
         """Send downloaded audio file + customizable prompt directly to the selected LLM API."""
         if provider not in LLM_PROVIDERS:
             raise ValueError(f"Provedor não suportado: {provider}")
@@ -296,8 +464,6 @@ class LLMService:
             )
 
         meta = LLM_PROVIDERS[provider]
-        audio_bytes = audio_path.read_bytes()
-        b64_audio = base64.b64encode(audio_bytes).decode("ascii")
         ext = audio_path.suffix.lstrip(".").lower() or "mp3"
         mime_map = {
             "mp3": "audio/mp3",
@@ -307,36 +473,64 @@ class LLMService:
             "opus": "audio/ogg",
         }
         mime_type = mime_map.get(ext, "audio/mp3")
+        file_size = audio_path.stat().st_size
 
         if provider == "gemini":
-            url = meta["base_url"].format(model=model_name)
-            headers = {
-                "x-goog-api-key": api_key,
-                "Content-Type": "application/json",
-            }
-            payload = {
-                "contents": [
+            # Use Resumable File API for real podcast episodes (> 4 MB) to avoid 20MB inline limit
+            if file_size > 4 * 1024 * 1024:
+                uploaded = self._upload_to_gemini_files_api(
+                    audio_path=audio_path,
+                    mime_type=mime_type,
+                    api_key=api_key,
+                    progress_callback=progress_callback,
+                )
+                try:
+                    if progress_callback:
+                        progress_callback(80.0)
+                    parts = [
+                        {
+                            "file_data": {
+                                "mime_type": mime_type,
+                                "file_uri": uploaded["uri"],
+                            }
+                        },
+                        {"text": prompt},
+                    ]
+                    return self._call_gemini_with_fallback(
+                        preferred_model=model_name,
+                        api_key=api_key,
+                        parts=parts,
+                    )
+                finally:
+                    if uploaded.get("name"):
+                        try:
+                            self.client.delete(
+                                f"https://generativelanguage.googleapis.com/v1beta/{uploaded['name']}",
+                                headers={"x-goog-api-key": api_key},
+                            )
+                            logger.info(
+                                f"[LLM-DIRETO] Arquivo temporário removido da Gemini File API: {uploaded['name']}"
+                            )
+                        except Exception:
+                            pass
+            else:
+                b64_audio = base64.b64encode(audio_path.read_bytes()).decode("ascii")
+                parts = [
+                    {"text": prompt},
                     {
-                        "parts": [
-                            {"text": prompt},
-                            {
-                                "inline_data": {
-                                    "mime_type": mime_type,
-                                    "data": b64_audio,
-                                }
-                            },
-                        ]
-                    }
+                        "inline_data": {
+                            "mime_type": mime_type,
+                            "data": b64_audio,
+                        }
+                    },
                 ]
-            }
-            resp = self.client.post(url, headers=headers, json=payload)
-            resp.raise_for_status()
-            data = resp.json()
-            candidates = data.get("candidates", [])
-            if not candidates:
-                raise RuntimeError(f"Resposta vazia da API Gemini (áudio): {data}")
-            parts = candidates[0].get("content", {}).get("parts", [])
-            return "\n".join(p.get("text", "") for p in parts).strip()
+                return self._call_gemini_with_fallback(
+                    preferred_model=model_name,
+                    api_key=api_key,
+                    parts=parts,
+                )
+
+        b64_audio = base64.b64encode(audio_path.read_bytes()).decode("ascii")
 
         if provider in ("chatgpt", "qwen", "deepseek"):
             url = meta["base_url"]
@@ -369,9 +563,9 @@ class LLMService:
                 ],
             }
             resp = self.client.post(url, headers=headers, json=payload)
-            resp.raise_for_status()
+            _raise_with_api_detail(resp, meta["name"])
             data = resp.json()
-            return data["choices"][0]["message"]["content"].strip()
+            return data["choices"][0]["message"]["content"].strip(), target_model
 
         if provider == "claude":
             url = meta["base_url"]
@@ -401,12 +595,13 @@ class LLMService:
                 ],
             }
             resp = self.client.post(url, headers=headers, json=payload)
-            resp.raise_for_status()
+            _raise_with_api_detail(resp, meta["name"])
             data = resp.json()
             content_blocks = data.get("content", [])
-            return "\n".join(
+            text = "\n".join(
                 b.get("text", "") for b in content_blocks if b.get("type") == "text"
             ).strip()
+            return text, model_name
 
         raise ValueError(f"Provedor não suportado: {provider}")
 
@@ -440,15 +635,16 @@ class LLMService:
             f"para {prov_info['name']} ({chosen_model})..."
         )
         if progress_callback:
-            progress_callback(25.0)
+            progress_callback(10.0)
 
         t0 = time.perf_counter()
-        summary_text = self.call_llm_audio_api(
+        summary_text, used_model = self.call_llm_audio_api(
             provider=chosen_provider,
             model_name=chosen_model,
             api_key=chosen_key,
             prompt=chosen_prompt,
             audio_path=audio_path,
+            progress_callback=progress_callback,
         )
         if progress_callback:
             progress_callback(95.0)
@@ -458,7 +654,7 @@ class LLMService:
         transcripts_dir = audio_path.parent / "transcripts"
         transcripts_dir.mkdir(parents=True, exist_ok=True)
         summary_filename = (
-            f"{slugify(ep.title)}__resumo_direto_{chosen_provider}_{slugify(chosen_model)}.txt"
+            f"{slugify(ep.title)}__resumo_direto_{chosen_provider}_{slugify(used_model)}.txt"
         )
         summary_path = transcripts_dir / summary_filename
         summary_path.write_text(summary_text, encoding="utf-8")
@@ -467,7 +663,7 @@ class LLMService:
             episode_id=episode_id,
             transcript_id=None,
             provider=chosen_provider,
-            model_name=chosen_model,
+            model_name=used_model,
             prompt_used=chosen_prompt,
             summary_text=summary_text,
             summary_path=str(summary_path),
