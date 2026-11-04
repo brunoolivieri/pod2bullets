@@ -1,6 +1,6 @@
 """Multi-provider LLM summarization service (ChatGPT, Claude, Gemini, DeepSeek, Qwen)
 supporting both text-transcript summarization and direct audio-to-summary via LLM API
-(including chunked Resumable File API upload for large podcast MP3s and automatic model fallback).
+(with verified URLs, regional/model fallbacks, and Resumable File API upload for large MP3s).
 """
 
 import base64
@@ -11,6 +11,7 @@ from typing import Any, Callable
 
 import httpx
 
+from pod2bullets.config import settings
 from pod2bullets.db.repository import Repository
 from pod2bullets.models import TranscriptSummary
 from pod2bullets.naming import slugify
@@ -31,6 +32,19 @@ GEMINI_FALLBACK_MODELS = [
     "gemini-3.5-flash",
     "gemini-3.8-flash",
     "gemini-3.5-flash-lite",
+]
+
+CLAUDE_FALLBACK_MODELS = [
+    "claude-sonnet-4-0",
+    "claude-3-7-sonnet-latest",
+    "claude-3-5-sonnet-latest",
+    "claude-3-5-haiku-latest",
+]
+
+QWEN_REGIONAL_URLS = [
+    "https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions",
+    "https://dashscope-us.aliyuncs.com/compatible-mode/v1/chat/completions",
+    "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
 ]
 
 LLM_PROVIDERS: dict[str, dict[str, Any]] = {
@@ -55,6 +69,7 @@ LLM_PROVIDERS: dict[str, dict[str, Any]] = {
         "audio_model": "gpt-4o-mini-audio-preview",
         "suggested_models": [
             "gpt-4o-mini",
+            "gpt-4.1-mini",
             "gpt-4o",
             "gpt-4o-mini-audio-preview",
             "gpt-4o-audio-preview",
@@ -66,11 +81,12 @@ LLM_PROVIDERS: dict[str, dict[str, Any]] = {
     "claude": {
         "id": "claude",
         "name": "Claude (Anthropic)",
-        "default_model": "claude-3-5-sonnet-latest",
+        "default_model": "claude-sonnet-4-0",
         "suggested_models": [
+            "claude-sonnet-4-0",
+            "claude-3-7-sonnet-latest",
             "claude-3-5-sonnet-latest",
             "claude-3-5-haiku-latest",
-            "claude-3-7-sonnet-latest",
         ],
         "supports_direct_audio": True,
         "base_url": "https://api.anthropic.com/v1/messages",
@@ -82,7 +98,7 @@ LLM_PROVIDERS: dict[str, dict[str, Any]] = {
         "default_model": "deepseek-chat",
         "suggested_models": ["deepseek-chat", "deepseek-reasoner"],
         "supports_direct_audio": True,
-        "base_url": "https://api.deepseek.com/chat/completions",
+        "base_url": "https://api.deepseek.com/v1/chat/completions",
         "env_key": "DEEPSEEK_API_KEY",
     },
     "qwen": {
@@ -90,7 +106,7 @@ LLM_PROVIDERS: dict[str, dict[str, Any]] = {
         "name": "Qwen (Alibaba DashScope)",
         "default_model": "qwen-plus",
         "audio_model": "qwen-omni-turbo",
-        "suggested_models": ["qwen-plus", "qwen-max", "qwen-omni-turbo", "qwen-audio-turbo"],
+        "suggested_models": ["qwen-plus", "qwen-max", "qwen-turbo", "qwen-omni-turbo"],
         "supports_direct_audio": True,
         "base_url": "https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions",
         "env_key": "DASHSCOPE_API_KEY",
@@ -280,6 +296,68 @@ class LLMService:
             _raise_with_api_detail(last_resp, "Gemini")
         raise RuntimeError("Falha ao comunicar com a API Gemini.")
 
+    def _call_claude_with_fallback(
+        self,
+        preferred_model: str,
+        api_key: str,
+        messages: list[dict[str, Any]],
+    ) -> tuple[str, str]:
+        """Call Anthropic Messages API with automatic model fallback on 404."""
+        clean_pref = preferred_model.strip()
+        candidates_to_try = [clean_pref] + [m for m in CLAUDE_FALLBACK_MODELS if m != clean_pref]
+        url = LLM_PROVIDERS["claude"]["base_url"]
+        headers = {
+            "x-api-key": api_key,
+            "anthropic-version": "2023-06-01",
+            "Content-Type": "application/json",
+        }
+        last_resp: httpx.Response | None = None
+        for idx, model_candidate in enumerate(candidates_to_try):
+            payload = {
+                "model": model_candidate,
+                "max_tokens": 4096,
+                "messages": messages,
+            }
+            resp = self.client.post(url, headers=headers, json=payload)
+            last_resp = resp
+            if resp.status_code == 200:
+                data = resp.json()
+                content_blocks = data.get("content", [])
+                text = "\n".join(
+                    b.get("text", "") for b in content_blocks if b.get("type") == "text"
+                ).strip()
+                return text, model_candidate
+
+            if resp.status_code == 404 and idx + 1 < len(candidates_to_try):
+                logger.warning(
+                    f"[LLM] Modelo Claude '{model_candidate}' retornou 404. "
+                    f"Tentando fallback '{candidates_to_try[idx + 1]}'..."
+                )
+                continue
+
+            _raise_with_api_detail(resp, "Claude (Anthropic)")
+
+        if last_resp is not None:
+            _raise_with_api_detail(last_resp, "Claude (Anthropic)")
+        raise RuntimeError("Falha ao comunicar com a API Claude.")
+
+    def _post_qwen_with_regional_fallback(
+        self,
+        headers: dict[str, str],
+        payload: dict[str, Any],
+    ) -> httpx.Response:
+        """Try Alibaba DashScope International, US, and China regional endpoints on 401/404."""
+        last_resp: httpx.Response | None = None
+        for url in QWEN_REGIONAL_URLS:
+            resp = self.client.post(url, headers=headers, json=payload)
+            last_resp = resp
+            if resp.status_code == 200:
+                return resp
+            if resp.status_code not in (401, 404):
+                break
+        assert last_resp is not None
+        return last_resp
+
     def _upload_to_gemini_files_api(
         self,
         audio_path: Path,
@@ -341,7 +419,6 @@ class LLMService:
                     f"{total_mb:.1f} MB ({pct_upload:.1f}%)"
                 )
                 if progress_callback:
-                    # Map upload progress to 10%..75% of LLM phase
                     progress_callback(10.0 + (pct_upload * 0.65))
 
                 if is_last:
@@ -352,7 +429,6 @@ class LLMService:
         file_uri = file_info.get("uri", "")
         state = file_info.get("state", "ACTIVE")
 
-        # Wait until Google marks the audio file ACTIVE
         polls = 0
         while state == "PROCESSING" and polls < 60:
             time.sleep(2.0)
@@ -394,7 +470,6 @@ class LLMService:
         full_user_message = f"{prompt}\n\n---\nTRANSCRIÇÃO DO EPISÓDIO:\n{transcript_text}"
 
         if provider in ("chatgpt", "deepseek", "qwen"):
-            url = meta["base_url"]
             headers = {
                 "Authorization": f"Bearer {api_key}",
                 "Content-Type": "application/json",
@@ -410,30 +485,21 @@ class LLMService:
                 ],
                 "temperature": 0.3,
             }
-            resp = self.client.post(url, headers=headers, json=payload)
+            if provider == "qwen":
+                resp = self._post_qwen_with_regional_fallback(headers, payload)
+            else:
+                resp = self.client.post(meta["base_url"], headers=headers, json=payload)
             _raise_with_api_detail(resp, meta["name"])
             data = resp.json()
             return data["choices"][0]["message"]["content"].strip()
 
         if provider == "claude":
-            url = meta["base_url"]
-            headers = {
-                "x-api-key": api_key,
-                "anthropic-version": "2023-06-01",
-                "Content-Type": "application/json",
-            }
-            payload = {
-                "model": model_name,
-                "max_tokens": 4096,
-                "messages": [{"role": "user", "content": full_user_message}],
-            }
-            resp = self.client.post(url, headers=headers, json=payload)
-            _raise_with_api_detail(resp, meta["name"])
-            data = resp.json()
-            content_blocks = data.get("content", [])
-            return "\n".join(
-                b.get("text", "") for b in content_blocks if b.get("type") == "text"
-            ).strip()
+            text, _ = self._call_claude_with_fallback(
+                preferred_model=model_name,
+                api_key=api_key,
+                messages=[{"role": "user", "content": full_user_message}],
+            )
+            return text
 
         if provider == "gemini":
             text, _ = self._call_gemini_with_fallback(
@@ -476,7 +542,6 @@ class LLMService:
         file_size = audio_path.stat().st_size
 
         if provider == "gemini":
-            # Use Resumable File API for real podcast episodes (> 4 MB) to avoid 20MB inline limit
             if file_size > 4 * 1024 * 1024:
                 uploaded = self._upload_to_gemini_files_api(
                     audio_path=audio_path,
@@ -533,7 +598,6 @@ class LLMService:
         b64_audio = base64.b64encode(audio_path.read_bytes()).decode("ascii")
 
         if provider in ("chatgpt", "qwen", "deepseek"):
-            url = meta["base_url"]
             headers = {
                 "Authorization": f"Bearer {api_key}",
                 "Content-Type": "application/json",
@@ -544,6 +608,8 @@ class LLMService:
             elif provider == "qwen" and "audio" not in target_model and "omni" not in target_model:
                 target_model = meta.get("audio_model", "qwen-omni-turbo")
 
+            # Qwen DashScope expects data URI prefix (`data:;base64,...`) in input_audio.data
+            audio_data_field = f"data:;base64,{b64_audio}" if provider == "qwen" else b64_audio
             payload = {
                 "model": target_model,
                 "messages": [
@@ -554,7 +620,7 @@ class LLMService:
                             {
                                 "type": "input_audio",
                                 "input_audio": {
-                                    "data": b64_audio,
+                                    "data": audio_data_field,
                                     "format": "wav" if ext == "wav" else "mp3",
                                 },
                             },
@@ -562,46 +628,69 @@ class LLMService:
                     }
                 ],
             }
-            resp = self.client.post(url, headers=headers, json=payload)
+            if provider == "qwen":
+                resp = self._post_qwen_with_regional_fallback(headers, payload)
+            else:
+                resp = self.client.post(meta["base_url"], headers=headers, json=payload)
+
+            # If a text-only endpoint (like DeepSeek) rejects input_audio with HTTP 400,
+            # automatically transcribe locally first and then summarize via text API!
+            if resp.status_code == 400 and provider == "deepseek":
+                logger.info(
+                    "[LLM-DIRETO] DeepSeek não aceita áudio binário direto; "
+                    "transcrevendo localmente e enviando texto para DeepSeek..."
+                )
+                from pod2bullets.transcriber.registry import ModelRegistry
+
+                engine = ModelRegistry().get_engine(settings.default_model_id)
+                tx_res = engine.transcribe(audio_path)
+                return (
+                    self.call_llm_api(provider, model_name, api_key, prompt, tx_res.plain_text),
+                    model_name,
+                )
+
             _raise_with_api_detail(resp, meta["name"])
             data = resp.json()
             return data["choices"][0]["message"]["content"].strip(), target_model
 
         if provider == "claude":
-            url = meta["base_url"]
-            headers = {
-                "x-api-key": api_key,
-                "anthropic-version": "2023-06-01",
-                "Content-Type": "application/json",
-            }
-            payload = {
-                "model": model_name,
-                "max_tokens": 4096,
-                "messages": [
-                    {
-                        "role": "user",
-                        "content": [
-                            {"type": "text", "text": prompt},
-                            {
-                                "type": "document",
-                                "source": {
-                                    "type": "base64",
-                                    "media_type": mime_type,
-                                    "data": b64_audio,
-                                },
+            messages = [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": prompt},
+                        {
+                            "type": "document",
+                            "source": {
+                                "type": "base64",
+                                "media_type": mime_type,
+                                "data": b64_audio,
                             },
-                        ],
-                    }
-                ],
-            }
-            resp = self.client.post(url, headers=headers, json=payload)
-            _raise_with_api_detail(resp, meta["name"])
-            data = resp.json()
-            content_blocks = data.get("content", [])
-            text = "\n".join(
-                b.get("text", "") for b in content_blocks if b.get("type") == "text"
-            ).strip()
-            return text, model_name
+                        },
+                    ],
+                }
+            ]
+            try:
+                return self._call_claude_with_fallback(
+                    preferred_model=model_name,
+                    api_key=api_key,
+                    messages=messages,
+                )
+            except RuntimeError as e:
+                if "400" in str(e):
+                    logger.info(
+                        "[LLM-DIRETO] API Claude não aceita áudio binário direto; "
+                        "transcrevendo localmente e enviando texto para Claude..."
+                    )
+                    from pod2bullets.transcriber.registry import ModelRegistry
+
+                    engine = ModelRegistry().get_engine(settings.default_model_id)
+                    tx_res = engine.transcribe(audio_path)
+                    return (
+                        self.call_llm_api(provider, model_name, api_key, prompt, tx_res.plain_text),
+                        model_name,
+                    )
+                raise
 
         raise ValueError(f"Provedor não suportado: {provider}")
 
