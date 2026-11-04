@@ -109,3 +109,17 @@ Especificação detalhada de cada passo em [PLAN.md](PLAN.md#5-passos-de-execuç
   - `pytest -v`: **23 passed** (incluindo teste de inferência real em GPU CUDA `test_cuda_libraries_preload_and_gpu_whisper`).
 
 
+### 2026-11-04 — Transcrição 100% Local + Seleção Conjunta de Modelo LLM, Sincronia 1:1 de Porcentagem (Bash/GUI) e Tratamento Avançado de APIs/Versões LLM — Gemini CLI
+- **Feito:**
+  - **Remoção total de envio de MP3 para LLMs (`llm/service.py`, `worker/queue.py`, `routes/episodes.py`):** Removidas todas as rotas e funções de upload de áudio (`.mp3`) para APIs externas; todo o áudio é transcrito 100% localmente e apenas o texto transcrito é enviado para resumo.
+  - **Escolha conjunta do Modelo ASR Local + Modelo LLM na Transcrição Local (`index.html`, `routes/episodes.py`, `view_transcript.html`, `worker/queue.py`):** No card do episódio, ao disparar a transcrição local, o usuário escolhe tanto o modelo ASR local (`whisper-large-v3-turbo`, `parakeet-tdt-0.6b-v3`, `whisper-small`, etc.) quanto o provedor/modelo LLM (`Gemini`, `Claude`, `ChatGPT`, `DeepSeek`, `Qwen` ou `Apenas Transcrever Localmente`), lembrando sempre da última escolha.
+  - **Porcentagem 1:1 idêntica entre Bash e GUI (`worker/queue.py`, `faster_whisper_engine.py`, `onnx_asr_engine.py`, `routes/episodes.py`, `routes/queue.py`):** Removido o deslocamento antigo de `+50%` na GUI (`50.0 + p * 0.5`); agora cada etapa (Download `0%..100%` e Transcrição `0%..100%`) reporta exatamente os mesmos marcos de `5% em 5%` no terminal bash e na barra de progresso da GUI.
+  - **Tratamento inteligente de erros, versões de API e descoberta ao vivo de modelos (`llm/service.py`, `routes/llm.py`):**
+    - Modelos depreciados (como `claude-sonnet-4-0`, `claude-3-7-sonnet-latest`, `claude-3-5-haiku-latest`) são atualizados automaticamente para os mais recentes (`claude-sonnet-4-6`, `claude-haiku-4-5`, `gemini-2.5-flash`, `gpt-4.1-mini`).
+    - Sempre tenta a versão/modelo mais recente na **Tentativa 1**, consulta o endpoint `/models` da API ao vivo quando necessário e alterna nas tentativas seguintes (`Tentativa 2/N`, `Tentativa 3/N`...), exibindo o histórico detalhado de tentativas no log e na interface Web sem stack traces gigantes.
+- **Verificação (WSL Ubuntu-26.04):**
+  - `ruff check .` e `ruff format --check .`: OK.
+  - `pytest -v`: **23 passed**.
+
+
+

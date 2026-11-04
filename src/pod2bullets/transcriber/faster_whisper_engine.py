@@ -122,11 +122,11 @@ class FasterWhisperEngine(TranscriberEngine):
                     parts.append(text_clean)
 
                 pct = min(99.0, round((s.end / duration) * 100, 1)) if duration > 0 else 50.0
-                if progress_callback and duration > 0:
-                    progress_callback(pct)
 
-                # Log ONLY every 5% milestone (5%, 10%, 15%... 95%), never the transcribed text!
+                # Log and report progress in synchronized 5% milestones (5%, 10%, 15%... 95%), never the text!
                 step_5 = int(pct // 5) * 5
+                if progress_callback and duration > 0:
+                    progress_callback(float(step_5))
                 if step_5 >= last_logged_step + 5 and step_5 <= 95:
                     last_logged_step = step_5
                     logger.info(

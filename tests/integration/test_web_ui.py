@@ -16,7 +16,7 @@ from pod2bullets.web.app import create_app
 from pod2bullets.worker.queue import BackgroundWorker
 
 
-def test_web_ui_pages_and_new_features(tmp_path: Path):
+def test_web_ui_pages_and_new_features(tmp_path: Path, sample_mp3: Path):
     db_file = tmp_path / "ui_test.sqlite"
     settings.db_path = db_file
     settings.logs_dir = tmp_path / "logs"
@@ -147,45 +147,81 @@ def test_web_ui_pages_and_new_features(tmp_path: Path):
     assert res_dl_sum.status_code == 200
     assert "attachment" in res_dl_sum.headers["content-disposition"]
 
-    # 4b. Direct Audio-to-LLM Summarization ("Baixar e Resumir (LLM)") + Remembering Last Option
+    # 4b. Local Transcription + Choosing LLM Model in the same action + Version Fallback (Newest -> Fallback)
     settings.podcasts_dir = tmp_path / "podcasts"
     settings.tmp_dir = tmp_path / "tmp"
     client.post(
-        "/llm/provider/gemini",
-        data={"model_name": "gemini-2.5-flash", "api_key": "AIzaSyTestDirectKey12345"},
+        "/llm/provider/claude",
+        data={"model_name": "claude-sonnet-4-0", "api_key": "sk-ant-testkey12345"},
     )
-    client.post("/llm/prompt", data={"prompt": "Resuma o áudio diretamente em tópicos:"})
+    # Verify deprecated 'claude-sonnet-4-0' was auto-upgraded to newest 'claude-sonnet-4-6'
+    cfg_json = client.get("/llm/config").json()
+    assert cfg_json["providers"]["claude"]["model"] == "claude-sonnet-4-6"
 
-    res_direct = client.post("/episodes/2/summarize-direct", data={"llm_provider": "gemini"})
-    assert res_direct.status_code == 200
-    assert res_direct.json()["llm_provider"] == "gemini"
-    assert client.get("/llm/config").json()["last_direct_provider"] == "gemini"
+    client.post("/llm/prompt", data={"prompt": "Resuma a transcrição local em tópicos:"})
 
-    def mock_direct_audio_and_llm(req: httpx.Request):
+    res_local_plus_llm = client.post(
+        "/episodes/2/download",
+        data={"model_id": "fake-engine", "llm_provider": "claude"},
+    )
+    assert res_local_plus_llm.status_code == 200
+    assert res_local_plus_llm.json()["model_id"] == "fake-engine"
+    assert res_local_plus_llm.json()["llm_provider"] == "claude"
+    assert client.get("/llm/config").json()["last_direct_provider"] == "claude"
+
+    claude_call_count = [0]
+
+    def mock_audio_dl_and_claude_fallback(req: httpx.Request):
+        import json
+
         url = str(req.url)
         if url.endswith(".mp3"):
-            return httpx.Response(200, content=b"FAKE_MP3_BYTES", headers={"content-length": "14"})
-        return httpx.Response(
-            200,
-            json={
-                "candidates": [
-                    {"content": {"parts": [{"text": "• Resumo Direto do Áudio via Gemini"}]}}
-                ]
-            },
-        )
+            mp3_bytes = sample_mp3.read_bytes()
+            return httpx.Response(
+                200, content=mp3_bytes, headers={"content-length": str(len(mp3_bytes))}
+            )
+        if url.endswith("/v1/models"):
+            return httpx.Response(
+                200,
+                json={"data": [{"id": "claude-sonnet-4-6-live"}]},
+            )
+        if "anthropic.com/v1/messages" in url:
+            claude_call_count[0] += 1
+            body = json.loads(req.content.decode("utf-8"))
+            # Simulate 404 on first attempt, then success on fallback attempt #2
+            if claude_call_count[0] == 1:
+                return httpx.Response(
+                    404,
+                    json={
+                        "error": {"type": "not_found_error", "message": f"model: {body['model']}"}
+                    },
+                )
+            return httpx.Response(
+                200,
+                json={
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": f"• Resumo da Transcrição Local via {body['model']}",
+                        }
+                    ]
+                },
+            )
+        return httpx.Response(404)
 
     worker = BackgroundWorker(db_path=db_file)
     with patch(
         "httpx.Client",
-        return_value=httpx.Client(transport=httpx.MockTransport(mock_direct_audio_and_llm)),
+        return_value=httpx.Client(transport=httpx.MockTransport(mock_audio_dl_and_claude_fallback)),
     ):
         assert worker.process_next_job() is True
 
-    # Verify summary can be read online on /view/2 and downloaded as .txt, and MP3 was deleted
+    # Verify both local transcript and automatic LLM summary exist on /view/2, and fallback model succeeded on attempt #2
+    assert claude_call_count[0] == 2
     res_view2 = client.get("/view/2")
     assert res_view2.status_code == 200
-    assert "Resumo Direto do Áudio via Gemini" in res_view2.text
-    assert client.delete("/llm/provider/gemini/key").status_code == 200
+    assert "Resumo da Transcrição Local via claude-sonnet-4-6-live" in res_view2.text
+    assert client.delete("/llm/provider/claude/key").status_code == 200
 
     # 5. Dual logs (YYYY-MM-DD-HH-MM-APP.log and transcricao.log), Log Viewer & Polling suppression (Items 8-12)
     paths = get_active_log_paths()

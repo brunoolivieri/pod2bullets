@@ -107,11 +107,10 @@ class OnnxAsrEngine(TranscriberEngine):
                 )
                 text_parts.append(chunk_text)
 
-            if progress_callback:
-                progress_callback(pct)
-
             # Log ONLY every 5% milestone (5%, 10%, 15%... 95%), never the transcribed text!
             step_5 = int(pct // 5) * 5
+            if progress_callback:
+                progress_callback(float(step_5))
             if step_5 >= last_logged_step + 5 and step_5 <= 95:
                 last_logged_step = step_5
                 logger.info(

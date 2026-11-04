@@ -61,7 +61,7 @@
             {% if selected_feed.description %}
             <p class="ep-summary" style="margin-bottom: 4px;">{{ selected_feed.description[:280] }}{% if selected_feed.description|length > 280 %}...{% endif %}</p>
             {% endif %}
-            <small class="muted-note">RSS: {{ selected_feed.rss_url }} — Escolha entre Transcrição Local ou Resumo Direto via LLM (suporta múltiplos cliques na fila!)</small>
+            <small class="muted-note">RSS: {{ selected_feed.rss_url }} — Transcrição 100% Local + Resumo LLM opcional sobre o texto transcrito (suporta múltiplos cliques na fila!)</small>
         </div>
     </div>
 
@@ -98,46 +98,24 @@
 
             <div class="ep-actions">
                 {% if ep.status.value == 'available' %}
-                <div class="dual-actions-grid">
-                    <!-- Opção 1: Baixar e Transcrever Localmente -->
-                    <form hx-post="/episodes/{{ ep.id }}/download" hx-target="#ep-card-{{ ep.id }}" hx-swap="outerHTML" class="action-box">
-                        <label class="action-box-label">🎙️ Transcrição Local (ASR)</label>
-                        <select name="model_id" class="select-inline-model">
-                            {% for m in models %}
-                            <option value="{{ m.id }}" {% if m.is_default %}selected{% endif %}>{{ m.name }}</option>
-                            {% endfor %}
-                        </select>
-                        <button type="submit" class="btn-download">⬇️ Baixar e Transcrever</button>
-                    </form>
-
-                    <!-- Opção 2: Baixar e Resumir Direto usando LLM (Lembra a última opção!) -->
-                    <form hx-post="/episodes/{{ ep.id }}/summarize-direct" hx-target="#ep-card-{{ ep.id }}" hx-swap="outerHTML" class="action-box action-box-llm">
-                        <label class="action-box-label">🤖 Resumir Direto via LLM</label>
-                        <select name="llm_provider" class="select-inline-model">
-                            {% if llm_cfg.registered_providers %}
-                                {% for p in llm_cfg.registered_providers %}
-                                <option value="{{ p.id }}" {% if llm_cfg.last_direct_provider == p.id %}selected{% endif %}>
-                                    🤖 {{ p.name }} ({{ p.model }}) ✅
-                                </option>
-                                {% endfor %}
-                                {% for pid, p in llm_cfg.providers.items() %}
-                                {% if not p.has_key %}
-                                <option value="{{ pid }}" {% if llm_cfg.last_direct_provider == pid %}selected{% endif %}>
-                                    {{ p.name }} (Sem chave ⚠️)
-                                </option>
-                                {% endif %}
-                                {% endfor %}
-                            {% else %}
-                                {% for pid, p in llm_cfg.providers.items() %}
-                                <option value="{{ pid }}" {% if llm_cfg.last_direct_provider == pid %}selected{% endif %}>
-                                    {{ p.name }} (Cadastrar chave ⚙️)
-                                </option>
-                                {% endfor %}
-                            {% endif %}
-                        </select>
-                        <button type="submit" class="btn-llm-direct">✨ Baixar e Resumir (LLM)</button>
-                    </form>
-                </div>
+                <form hx-post="/episodes/{{ ep.id }}/download" hx-target="#ep-card-{{ ep.id }}" hx-swap="outerHTML" class="action-box" style="min-width: 280px;">
+                    <label class="action-box-label">🎙️ Modelo de Transcrição Local (GPU/CPU):</label>
+                    <select name="model_id" class="select-inline-model">
+                        {% for m in models %}
+                        <option value="{{ m.id }}" {% if m.is_default %}selected{% endif %}>{{ m.name }} {% if m.is_installed %}(Instalado ✅){% else %}(Auto-instalar ⬇️){% endif %}</option>
+                        {% endfor %}
+                    </select>
+                    <label class="action-box-label" style="margin-top: 4px;">🤖 Modelo LLM p/ Resumir Texto (Opcional):</label>
+                    <select name="llm_provider" class="select-inline-model">
+                        <option value="none" {% if llm_cfg.last_direct_provider == 'none' %}selected{% endif %}>🚫 Apenas Transcrever Localmente (Sem LLM)</option>
+                        {% for pid, p in llm_cfg.providers.items() %}
+                        <option value="{{ pid }}" {% if llm_cfg.last_direct_provider == pid %}selected{% endif %}>
+                            🤖 Resumir c/ {{ p.name }} ({{ p.model }}) [{% if p.has_key %}✅{% else %}⚠️ Sem chave{% endif %}]
+                        </option>
+                        {% endfor %}
+                    </select>
+                    <button type="submit" class="btn-download" style="margin-top: 4px;">⬇️ Baixar e Transcrever</button>
+                </form>
 
                 {% elif ep.status.value == 'queued_download' and ep.job_status == 'pending' %}
                 <div class="status-box queued" hx-get="/episodes/card/{{ ep.id }}" hx-trigger="every 1.5s" hx-target="#ep-card-{{ ep.id }}" hx-swap="outerHTML">
@@ -148,33 +126,33 @@
                         {% endif %}
                     </div>
                     <div class="progress-bar-container">
-                        <div class="progress-bar-fill" style="width: 8%; opacity: 0.6;"></div>
+                        <div class="progress-bar-fill" style="width: 5%; opacity: 0.6;"></div>
                     </div>
                 </div>
 
                 {% elif ep.status.value in ['queued_download', 'downloading'] %}
                 <div class="status-box downloading" hx-get="/episodes/card/{{ ep.id }}" hx-trigger="every 1.2s" hx-target="#ep-card-{{ ep.id }}" hx-swap="outerHTML">
                     <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px;">
-                        <span><span class="hourglass-icon">⏳</span> Baixando/Preparando ({{ ep.progress or 0 }}%)...</span>
+                        <span><span class="hourglass-icon">⏳</span> Baixando áudio ({{ ep.progress or 0 }}%)...</span>
                         {% if ep.job_id %}
                         <button type="button" class="btn-cancel-inline" hx-post="/queue/{{ ep.job_id }}/cancel?from_card=1" hx-target="#ep-card-{{ ep.id }}" hx-swap="outerHTML">✖ Cancelar</button>
                         {% endif %}
                     </div>
                     <div class="progress-bar-container">
-                        <div class="progress-bar-fill" style="width: {{ ep.progress or 15 }}%;"></div>
+                        <div class="progress-bar-fill" style="width: {{ ep.progress or 2 }}%;"></div>
                     </div>
                 </div>
 
                 {% elif ep.status.value == 'summarizing_llm' %}
                 <div class="status-box transcribing" hx-get="/episodes/card/{{ ep.id }}" hx-trigger="every 1.2s" hx-target="#ep-card-{{ ep.id }}" hx-swap="outerHTML">
                     <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px;">
-                        <span><span class="hourglass-icon">⏳</span> Resumindo via LLM ({{ ep.progress or 55 }}%)...</span>
+                        <span><span class="hourglass-icon">⏳</span> Resumindo transcrição via LLM...</span>
                         {% if ep.job_id %}
                         <button type="button" class="btn-cancel-inline" hx-post="/queue/{{ ep.job_id }}/cancel?from_card=1" hx-target="#ep-card-{{ ep.id }}" hx-swap="outerHTML">✖ Cancelar</button>
                         {% endif %}
                     </div>
                     <div class="progress-bar-container">
-                        <div class="progress-bar-fill transcribe" style="width: {{ ep.progress or 55 }}%;"></div>
+                        <div class="progress-bar-fill transcribe" style="width: 95%;"></div>
                     </div>
                 </div>
 
@@ -187,16 +165,21 @@
                         {% endif %}
                     </div>
                     <div class="progress-bar-container">
-                        <div class="progress-bar-fill transcribe" style="width: {{ ep.progress or 50 }}%;"></div>
+                        <div class="progress-bar-fill transcribe" style="width: {{ ep.progress or 2 }}%;"></div>
                     </div>
                 </div>
 
                 {% elif ep.status.value == 'completed' %}
                 <div class="completed-actions">
-                    <span class="badge-completed">✅ Processado</span>
+                    <span class="badge-completed">✅ Transcrito Localmente</span>
                     <span class="proc-time-label" style="font-size: 0.78rem; color: #94a3b8;">
                         {% if ep.proc_time %}⏱️ Tempo: {{ ep.proc_time }}s | {% endif %}🧹 MP3 removido
                     </span>
+                    {% if ep.error_message %}
+                    <div style="font-size: 0.75rem; color: #fbbf24; background: rgba(245, 158, 11, 0.12); border: 1px solid rgba(245, 158, 11, 0.4); border-radius: 5px; padding: 5px 8px; max-width: 340px; text-align: right;" title="{{ ep.error_message }}">
+                        ⚠️ {{ ep.error_message[:180] }}
+                    </div>
+                    {% endif %}
                     <div style="display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end;">
                         {% if ep.has_transcript %}
                         <a href="/view/{{ ep.id }}" class="btn-view">📖 Ler na Íntegra</a>
@@ -206,60 +189,52 @@
                         <a href="/view/{{ ep.id }}#resumo-ia" class="btn-copy">📑 Ler Resumo Online</a>
                         <a href="/llm/summaries/{{ ep.latest_summary_id }}/download" class="btn-txt" style="background: #0d9488;">💾 Baixar Resumo (.TXT)</a>
                         {% elif ep.has_transcript %}
-                        <a href="/view/{{ ep.id }}#resumo-ia" class="btn-copy">✨ Resumir (LLM)</a>
+                        <a href="/view/{{ ep.id }}#resumo-ia" class="btn-copy">✨ Resumir Texto (LLM)</a>
                         {% endif %}
                     </div>
-                    <div style="display: flex; gap: 6px; margin-top: 6px; flex-wrap: wrap; justify-content: flex-end; width: 100%;">
-                        <form hx-post="/episodes/{{ ep.id }}/download" hx-target="#ep-card-{{ ep.id }}" hx-swap="outerHTML" style="display: flex; gap: 4px; flex: 1;">
-                            <select name="model_id" class="select-inline-model" style="margin-bottom: 0; padding: 5px; font-size: 0.75rem;">
+                    <form hx-post="/episodes/{{ ep.id }}/download" hx-target="#ep-card-{{ ep.id }}" hx-swap="outerHTML" style="display: flex; flex-direction: column; gap: 4px; margin-top: 6px; width: 100%; max-width: 320px;">
+                        <div style="display: flex; gap: 4px;">
+                            <select name="model_id" class="select-inline-model" style="margin-bottom: 0; padding: 5px; font-size: 0.74rem; flex: 1;">
                                 {% for m in models %}
                                 <option value="{{ m.id }}" {% if m.is_default %}selected{% endif %}>{{ m.name }}</option>
                                 {% endfor %}
                             </select>
-                            <button type="submit" class="btn-reprocess" title="Baixar novamente o áudio e reprocessar transcrição local">
-                                🔄 Reprocessar
-                            </button>
-                        </form>
-                        <form hx-post="/episodes/{{ ep.id }}/summarize-direct" hx-target="#ep-card-{{ ep.id }}" hx-swap="outerHTML" style="display: flex; gap: 4px; flex: 1;">
-                            <select name="llm_provider" class="select-inline-model" style="margin-bottom: 0; padding: 5px; font-size: 0.75rem;">
+                            <select name="llm_provider" class="select-inline-model" style="margin-bottom: 0; padding: 5px; font-size: 0.74rem; flex: 1;">
+                                <option value="none" {% if llm_cfg.last_direct_provider == 'none' %}selected{% endif %}>🚫 Sem LLM</option>
                                 {% for pid, p in llm_cfg.providers.items() %}
                                 <option value="{{ pid }}" {% if llm_cfg.last_direct_provider == pid %}selected{% endif %}>
-                                    {{ p.name }} {% if p.has_key %}✅{% else %}⚠️{% endif %}
+                                    🤖 {{ p.name }} ({{ p.model }}) {% if p.has_key %}✅{% else %}⚠️{% endif %}
                                 </option>
                                 {% endfor %}
                             </select>
-                            <button type="submit" class="btn-reprocess" style="border-color: #6366f1;" title="Baixar áudio e resumir direto via API de LLM">
-                                🤖 Resumir Direto
-                            </button>
-                        </form>
-                    </div>
+                        </div>
+                        <button type="submit" class="btn-reprocess" title="Baixar novamente o áudio e reprocessar transcrição local">
+                            🔄 Reprocessar Transcrição Local
+                        </button>
+                    </form>
                 </div>
 
                 {% elif ep.status.value == 'failed' %}
                 <div class="completed-actions">
                     <span style="color: #ef4444; font-size: 0.8rem; font-weight: 600;" title="{{ ep.error_message }}">
-                        ❌ Falhou: {{ (ep.error_message or 'Erro')[:100] }}
+                        ❌ Falhou: {{ (ep.error_message or 'Erro')[:120] }}
                     </span>
-                    <div class="dual-actions-grid" style="margin-top: 6px;">
-                        <form hx-post="/episodes/{{ ep.id }}/download" hx-target="#ep-card-{{ ep.id }}" hx-swap="outerHTML" class="action-box">
-                            <select name="model_id" class="select-inline-model">
-                                {% for m in models %}
-                                <option value="{{ m.id }}" {% if m.is_default %}selected{% endif %}>{{ m.name }}</option>
-                                {% endfor %}
-                            </select>
-                            <button type="submit" class="btn-download">🔄 Tentar Transcrever</button>
-                        </form>
-                        <form hx-post="/episodes/{{ ep.id }}/summarize-direct" hx-target="#ep-card-{{ ep.id }}" hx-swap="outerHTML" class="action-box action-box-llm">
-                            <select name="llm_provider" class="select-inline-model">
-                                {% for pid, p in llm_cfg.providers.items() %}
-                                <option value="{{ pid }}" {% if llm_cfg.last_direct_provider == pid %}selected{% endif %}>
-                                    {{ p.name }} {% if p.has_key %}✅{% else %}⚠️{% endif %}
-                                </option>
-                                {% endfor %}
-                            </select>
-                            <button type="submit" class="btn-llm-direct">🔄 Tentar Resumo LLM</button>
-                        </form>
-                    </div>
+                    <form hx-post="/episodes/{{ ep.id }}/download" hx-target="#ep-card-{{ ep.id }}" hx-swap="outerHTML" class="action-box" style="margin-top: 6px; min-width: 280px;">
+                        <select name="model_id" class="select-inline-model">
+                            {% for m in models %}
+                            <option value="{{ m.id }}" {% if m.is_default %}selected{% endif %}>{{ m.name }}</option>
+                            {% endfor %}
+                        </select>
+                        <select name="llm_provider" class="select-inline-model">
+                            <option value="none" {% if llm_cfg.last_direct_provider == 'none' %}selected{% endif %}>🚫 Apenas Transcrever Localmente</option>
+                            {% for pid, p in llm_cfg.providers.items() %}
+                            <option value="{{ pid }}" {% if llm_cfg.last_direct_provider == pid %}selected{% endif %}>
+                                🤖 {{ p.name }} ({{ p.model }}) {% if p.has_key %}✅{% else %}⚠️{% endif %}
+                            </option>
+                            {% endfor %}
+                        </select>
+                        <button type="submit" class="btn-download">🔄 Tentar Novamente</button>
+                    </form>
                 </div>
                 {% endif %}
             </div>

@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException, Request, Response
 from pod2bullets.db.connection import get_db_connection
 from pod2bullets.db.repository import Repository
 from pod2bullets.system_status import activity_tracker
+from pod2bullets.worker.queue import parse_job_models
 
 logger = logging.getLogger("pod2bullets.web.queue")
 
@@ -52,25 +53,29 @@ def _render_queue_panel_html() -> str:
         pct = round(float(j.get("progress_percent") or 0.0), 1)
         ep_title = j.get("episode_title") or f"Episódio #{j['episode_id']}"
         feed_title = j.get("feed_title") or "Podcast"
-        model_id = j.get("model_id") or "padrão"
-        is_llm = j.get("job_type") == "download_and_summarize_llm"
-        mode_label = f"🤖 Resumo LLM ({model_id})" if is_llm else f"🎙️ Transcrição ASR ({model_id})"
+        raw_model_id = j.get("model_id") or "padrão"
+        asr_model, llm_prov = parse_job_models(raw_model_id)
+        mode_label = (
+            f"🎙️ ASR ({asr_model}) + 🤖 LLM ({llm_prov})"
+            if llm_prov
+            else f"🎙️ Transcrição Local ({asr_model})"
+        )
 
         if status == "running":
-            if ep_status == "summarizing_llm" or (is_llm and pct >= 50.0):
-                stage_text = f"⏳ Enviando/Resumindo via LLM ({pct}%)"
+            if ep_status == "summarizing_llm":
+                stage_text = f"⏳ Resumindo transcrição via LLM ({llm_prov or 'API'})"
                 bar_class = "progress-bar-fill transcribe"
-            elif ep_status == "transcribing" or pct >= 50.0:
-                stage_text = f"⏳ Transcrevendo áudio ({pct}%)"
+            elif ep_status == "transcribing":
+                stage_text = f"⏳ Transcrevendo áudio ({pct:.0f}%)"
                 bar_class = "progress-bar-fill transcribe"
             else:
-                stage_text = f"⬇️ Baixando áudio ({pct}%)"
+                stage_text = f"⬇️ Baixando áudio ({pct:.0f}%)"
                 bar_class = "progress-bar-fill"
             badge_html = '<span class="queue-badge running">▶ Executando (#1)</span>'
         else:
             stage_text = f"🕒 Aguardando na fila (Posição #{pos})"
             bar_class = "progress-bar-fill"
-            pct = 6.0
+            pct = 0.0
             badge_html = f'<span class="queue-badge pending">🕒 Na Fila (#{pos})</span>'
 
         cards_html.append(
@@ -97,7 +102,7 @@ def _render_queue_panel_html() -> str:
                     <span class="queue-pct-text">{pct:.0f}%</span>
                 </div>
                 <div class="progress-bar-container">
-                    <div class="{bar_class}" style="width: {max(pct, 5)}%;"></div>
+                    <div class="{bar_class}" style="width: {max(pct, 2):.0f}%;"></div>
                 </div>
             </div>
             """
