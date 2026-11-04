@@ -54,16 +54,21 @@ def _render_queue_panel_html() -> str:
         ep_title = j.get("episode_title") or f"Episódio #{j['episode_id']}"
         feed_title = j.get("feed_title") or "Podcast"
         raw_model_id = j.get("model_id") or "padrão"
+        j_type = j.get("job_type") or ""
         asr_model, llm_prov = parse_job_models(raw_model_id)
-        mode_label = (
-            f"🎙️ ASR ({asr_model}) + 🤖 LLM ({llm_prov})"
-            if llm_prov
-            else f"🎙️ Transcrição Local ({asr_model})"
-        )
+        if j_type == "summarize_text_llm":
+            llm_prov = llm_prov or asr_model
+            mode_label = f"🤖 Só Texto via LLM ({llm_prov})"
+        else:
+            mode_label = (
+                f"🎙️ ASR ({asr_model}) + 🤖 LLM ({llm_prov})"
+                if llm_prov
+                else f"🎙️ Transcrição Local ({asr_model})"
+            )
 
         if status == "running":
-            if ep_status == "summarizing_llm":
-                stage_text = f"⏳ Resumindo transcrição via LLM ({llm_prov or 'API'})"
+            if ep_status == "summarizing_llm" or j_type == "summarize_text_llm":
+                stage_text = f"⏳ Resumindo texto local via LLM ({llm_prov or 'API'})"
                 bar_class = "progress-bar-fill transcribe"
             elif ep_status == "transcribing":
                 stage_text = f"⏳ Transcrevendo áudio ({pct:.0f}%)"

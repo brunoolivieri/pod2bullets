@@ -192,14 +192,33 @@
                         <a href="/view/{{ ep.id }}#resumo-ia" class="btn-copy">✨ Resumir Texto (LLM)</a>
                         {% endif %}
                     </div>
-                    <form hx-post="/episodes/{{ ep.id }}/download" hx-target="#ep-card-{{ ep.id }}" hx-swap="outerHTML" style="display: flex; flex-direction: column; gap: 4px; margin-top: 6px; width: 100%; max-width: 320px;">
+                    <!-- Opção A: Reprocessar Somente o Texto via LLM (sem baixar MP3) -->
+                    <form hx-post="/episodes/{{ ep.id }}/reprocess-llm" hx-target="#ep-card-{{ ep.id }}" hx-swap="outerHTML" style="display: flex; flex-direction: column; gap: 4px; margin-top: 8px; width: 100%; max-width: 340px; padding: 8px; background: rgba(30, 41, 59, 0.55); border: 1px solid #334155; border-radius: 6px;">
+                        <label class="action-box-label" style="font-size: 0.72rem; color: #93c5fd;">🤖 Opção A — Reprocessar Somente o Texto via LLM (Usa a transcrição já pronta):</label>
                         <div style="display: flex; gap: 4px;">
-                            <select name="model_id" class="select-inline-model" style="margin-bottom: 0; padding: 5px; font-size: 0.74rem; flex: 1;">
+                            <select name="llm_provider" class="select-inline-model" style="margin-bottom: 0; padding: 5px; font-size: 0.74rem; flex: 1;">
+                                {% for pid, p in llm_cfg.providers.items() %}
+                                <option value="{{ pid }}" {% if llm_cfg.last_direct_provider == pid or (llm_cfg.last_direct_provider == 'none' and llm_cfg.active_provider == pid) %}selected{% endif %}>
+                                    🤖 {{ p.name }} ({{ p.model }}) [{% if p.has_key %}✅{% else %}⚠️ Sem chave{% endif %}]
+                                </option>
+                                {% endfor %}
+                            </select>
+                            <button type="submit" class="btn-llm-direct" style="width: auto; padding: 5px 10px; font-size: 0.75rem; white-space: nowrap;" title="Gera um novo resumo usando o texto já transcrito localmente, sem baixar o MP3">
+                                ✨ Só Texto (LLM)
+                            </button>
+                        </div>
+                    </form>
+
+                    <!-- Opção B: Reprocessar Tudo (Desde o MP3 -> Transcrição Local -> Resumo LLM opcional) -->
+                    <form hx-post="/episodes/{{ ep.id }}/download" hx-target="#ep-card-{{ ep.id }}" hx-swap="outerHTML" style="display: flex; flex-direction: column; gap: 4px; margin-top: 4px; width: 100%; max-width: 340px; padding: 8px; background: rgba(15, 23, 42, 0.55); border: 1px solid #334155; border-radius: 6px;">
+                        <label class="action-box-label" style="font-size: 0.72rem; color: #cbd5e1;">🔄 Opção B — Reprocessar Tudo (Desde o MP3):</label>
+                        <div style="display: flex; gap: 4px;">
+                            <select name="model_id" class="select-inline-model" style="margin-bottom: 0; padding: 5px; font-size: 0.73rem; flex: 1;">
                                 {% for m in models %}
                                 <option value="{{ m.id }}" {% if m.is_default %}selected{% endif %}>{{ m.name }}</option>
                                 {% endfor %}
                             </select>
-                            <select name="llm_provider" class="select-inline-model" style="margin-bottom: 0; padding: 5px; font-size: 0.74rem; flex: 1;">
+                            <select name="llm_provider" class="select-inline-model" style="margin-bottom: 0; padding: 5px; font-size: 0.73rem; flex: 1;">
                                 <option value="none" {% if llm_cfg.last_direct_provider == 'none' %}selected{% endif %}>🚫 Sem LLM</option>
                                 {% for pid, p in llm_cfg.providers.items() %}
                                 <option value="{{ pid }}" {% if llm_cfg.last_direct_provider == pid %}selected{% endif %}>
@@ -208,8 +227,8 @@
                                 {% endfor %}
                             </select>
                         </div>
-                        <button type="submit" class="btn-reprocess" title="Baixar novamente o áudio e reprocessar transcrição local">
-                            🔄 Reprocessar Transcrição Local
+                        <button type="submit" class="btn-reprocess" title="Baixar novamente o áudio MP3, transcrever localmente e resumir (se selecionado)">
+                            🔄 Reprocessar Tudo (Desde o MP3)
                         </button>
                     </form>
                 </div>

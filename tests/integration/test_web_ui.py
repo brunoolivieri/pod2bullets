@@ -221,6 +221,34 @@ def test_web_ui_pages_and_new_features(tmp_path: Path, sample_mp3: Path):
     res_view2 = client.get("/view/2")
     assert res_view2.status_code == 200
     assert "Resumo da Transcrição Local via claude-sonnet-4-6-live" in res_view2.text
+    assert "Reprocessar Só Texto (LLM)" in res_view2.text
+    assert "Reprocessar Tudo (Desde o MP3)" in res_view2.text
+
+    # 4c. Reprocess ONLY the existing local text via LLM (without downloading MP3 again)
+    mp3_requested = [False]
+
+    def mock_reprocess_text_only(req: httpx.Request):
+        if str(req.url).endswith(".mp3"):
+            mp3_requested[0] = True
+            return httpx.Response(500)
+        return httpx.Response(
+            200,
+            json={"content": [{"type": "text", "text": "• Novo Resumo Reprocessado Só do Texto"}]},
+        )
+
+    res_reproc_llm = client.post("/episodes/2/reprocess-llm", data={"llm_provider": "claude"})
+    assert res_reproc_llm.status_code == 200
+    assert res_reproc_llm.json()["mode"] == "text_only_llm"
+
+    with patch(
+        "httpx.Client",
+        return_value=httpx.Client(transport=httpx.MockTransport(mock_reprocess_text_only)),
+    ):
+        assert worker.process_next_job() is True
+
+    assert mp3_requested[0] is False
+    res_view2_after = client.get("/view/2")
+    assert "Novo Resumo Reprocessado Só do Texto" in res_view2_after.text
     assert client.delete("/llm/provider/claude/key").status_code == 200
 
     # 5. Dual logs (YYYY-MM-DD-HH-MM-APP.log and transcricao.log), Log Viewer & Polling suppression (Items 8-12)

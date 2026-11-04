@@ -39,9 +39,25 @@
 
         {% if episode %}
         <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+            {% if active_transcript %}
+            <form hx-post="/episodes/{{ episode.id }}/reprocess-llm"
+                  hx-swap="none"
+                  onsubmit="alert('Reprocessamento somente do texto via LLM adicionado à fila!'); setTimeout(() => window.location.href='/?feed_id={{ episode.feed_id }}', 500);"
+                  style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap;">
+                <select name="llm_provider" class="select-inline-model" style="margin-bottom: 0; width: auto;">
+                    {% for pid, p in llm_cfg.providers.items() %}
+                    <option value="{{ pid }}" {% if llm_cfg.last_direct_provider == pid or (llm_cfg.last_direct_provider == 'none' and llm_cfg.active_provider == pid) %}selected{% endif %}>
+                        🤖 {{ p.name }} ({{ p.model }}) {% if p.has_key %}✅{% else %}⚠️{% endif %}
+                    </option>
+                    {% endfor %}
+                </select>
+                <button type="submit" class="btn-llm-direct" style="width: auto; padding: 6px 12px;">✨ Reprocessar Só Texto (LLM)</button>
+            </form>
+            {% endif %}
+
             <form hx-post="/episodes/{{ episode.id }}/download"
                   hx-swap="none"
-                  onsubmit="alert('Episódio adicionado à fila de transcrição local!'); setTimeout(() => window.location.href='/?feed_id={{ episode.feed_id }}', 500);"
+                  onsubmit="alert('Reprocessamento completo (desde o MP3) adicionado à fila!'); setTimeout(() => window.location.href='/?feed_id={{ episode.feed_id }}', 500);"
                   style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap;">
                 <select name="model_id" class="select-inline-model" style="margin-bottom: 0; width: auto;">
                     {% for m in models %}
@@ -56,7 +72,7 @@
                     </option>
                     {% endfor %}
                 </select>
-                <button type="submit" class="btn-reprocess">🔄 Reprocessar Localmente</button>
+                <button type="submit" class="btn-reprocess">🔄 Reprocessar Tudo (Desde o MP3)</button>
             </form>
         </div>
         {% endif %}

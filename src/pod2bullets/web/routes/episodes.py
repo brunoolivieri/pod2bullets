@@ -45,6 +45,21 @@ def _build_llm_select_options(llm_cfg: dict) -> str:
     return "".join(options)
 
 
+def _build_llm_only_select_options(llm_cfg: dict) -> str:
+    """Build <option> tags for reprocessing ONLY the text transcript via LLM."""
+    last_prov = llm_cfg.get("last_direct_provider")
+    if not last_prov or last_prov == "none":
+        last_prov = llm_cfg.get("active_provider") or "gemini"
+    options = []
+    for pid, p in llm_cfg["providers"].items():
+        sel = "selected" if pid == last_prov else ""
+        status_icon = "✅" if p["has_key"] else "⚠️ Sem chave"
+        options.append(
+            f'<option value="{pid}" {sel}>🤖 {p["name"]} ({p["model"]}) [{status_icon}]</option>'
+        )
+    return "".join(options)
+
+
 @router.get("/card/{episode_id}")
 def get_episode_card(episode_id: int):
     conn = get_db_connection()
@@ -80,8 +95,11 @@ def get_episode_card(episode_id: int):
     job_id = int(job_row["id"]) if job_row else 0
     progress = float(job_row["progress_percent"]) if job_row else 0.0
     job_status = job_row["status"] if job_row else ""
+    job_type = job_row["job_type"] if job_row else ""
     raw_job_model = (job_row["model_id"] if job_row else None) or settings.default_model_id
     asr_job_model, llm_job_prov = parse_job_models(raw_job_model)
+    if job_type == "summarize_text_llm" and not llm_job_prov:
+        llm_job_prov = asr_job_model
     conn.close()
 
     cancel_inline_btn = (
@@ -99,6 +117,7 @@ def get_episode_card(episode_id: int):
         for m in all_models
     )
     llm_options_html = _build_llm_select_options(llm_cfg)
+    llm_only_options_html = _build_llm_only_select_options(llm_cfg)
 
     local_action_form = f"""
     <form hx-post="/episodes/{ep.id}/download" hx-target="#ep-card-{ep.id}" hx-swap="outerHTML" class="action-box" style="min-width: 280px;">
@@ -207,17 +226,33 @@ def get_episode_card(episode_id: int):
                 {tx_buttons}
                 {sum_buttons}
             </div>
-            <form hx-post="/episodes/{ep.id}/download" hx-target="#ep-card-{ep.id}" hx-swap="outerHTML" style="display: flex; flex-direction: column; gap: 4px; margin-top: 6px; width: 100%; max-width: 320px;">
+
+            <!-- Opção 1: Reprocessar Somente o Texto via LLM (sem baixar MP3 novamente) -->
+            <form hx-post="/episodes/{ep.id}/reprocess-llm" hx-target="#ep-card-{ep.id}" hx-swap="outerHTML" style="display: flex; flex-direction: column; gap: 4px; margin-top: 8px; width: 100%; max-width: 340px; padding: 8px; background: rgba(30, 41, 59, 0.55); border: 1px solid #334155; border-radius: 6px;">
+                <label class="action-box-label" style="font-size: 0.72rem; color: #93c5fd;">🤖 Opção A — Reprocessar Somente o Texto via LLM (Usa a transcrição já pronta):</label>
                 <div style="display: flex; gap: 4px;">
-                    <select name="model_id" class="select-inline-model" style="margin-bottom: 0; padding: 5px; font-size: 0.74rem; flex: 1;">
+                    <select name="llm_provider" class="select-inline-model" style="margin-bottom: 0; padding: 5px; font-size: 0.74rem; flex: 1;">
+                        {llm_only_options_html}
+                    </select>
+                    <button type="submit" class="btn-llm-direct" style="width: auto; padding: 5px 10px; font-size: 0.75rem; white-space: nowrap;" title="Gera um novo resumo usando o texto já transcrito localmente, sem baixar o MP3">
+                        ✨ Só Texto (LLM)
+                    </button>
+                </div>
+            </form>
+
+            <!-- Opção 2: Reprocessar Tudo (Desde o MP3 -> Transcrição Local -> Resumo LLM opcional) -->
+            <form hx-post="/episodes/{ep.id}/download" hx-target="#ep-card-{ep.id}" hx-swap="outerHTML" style="display: flex; flex-direction: column; gap: 4px; margin-top: 4px; width: 100%; max-width: 340px; padding: 8px; background: rgba(15, 23, 42, 0.55); border: 1px solid #334155; border-radius: 6px;">
+                <label class="action-box-label" style="font-size: 0.72rem; color: #cbd5e1;">🔄 Opção B — Reprocessar Tudo (Desde o MP3):</label>
+                <div style="display: flex; gap: 4px;">
+                    <select name="model_id" class="select-inline-model" style="margin-bottom: 0; padding: 5px; font-size: 0.73rem; flex: 1;">
                         {model_options_html}
                     </select>
-                    <select name="llm_provider" class="select-inline-model" style="margin-bottom: 0; padding: 5px; font-size: 0.74rem; flex: 1;">
+                    <select name="llm_provider" class="select-inline-model" style="margin-bottom: 0; padding: 5px; font-size: 0.73rem; flex: 1;">
                         {llm_options_html}
                     </select>
                 </div>
-                <button type="submit" class="btn-reprocess" title="Baixar novamente o áudio e reprocessar localmente">
-                    🔄 Reprocessar Transcrição Local
+                <button type="submit" class="btn-reprocess" title="Baixar novamente o áudio MP3, transcrever localmente e resumir (se selecionado)">
+                    🔄 Reprocessar Tudo (Desde o MP3)
                 </button>
             </form>
         </div>
@@ -327,6 +362,72 @@ def trigger_download_and_transcribe(
         "job_id": job.id,
         "queue_position": q_pos,
         "model_id": chosen_model,
+        "llm_provider": chosen_llm,
+    }
+
+
+@router.post("/{episode_id}/reprocess-llm")
+def trigger_reprocess_text_only_llm(
+    episode_id: int,
+    request: Request,
+    llm_provider: str | None = Form(None),
+):
+    """User clicked to reprocess ONLY the existing local text transcript via LLM (without downloading MP3)."""
+    conn = get_db_connection()
+    repo = Repository(conn)
+    ep = repo.get_episode(episode_id)
+    if not ep:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Episódio não encontrado")
+
+    transcripts = repo.list_episode_transcripts(episode_id)
+    if not transcripts:
+        conn.close()
+        raise HTTPException(
+            status_code=400,
+            detail="Este episódio ainda não possui transcrição local. Use 'Baixar e Transcrever' primeiro.",
+        )
+
+    llm_svc = LLMService(repo)
+    cfg = llm_svc.get_config()
+    chosen_llm = (llm_provider or cfg.get("last_direct_provider") or cfg["active_provider"]).strip()
+    if chosen_llm not in LLM_PROVIDERS:
+        chosen_llm = cfg["active_provider"]
+
+    llm_svc.set_last_direct_provider(chosen_llm)
+
+    active_job = repo.get_active_job_for_episode(episode_id)
+    if active_job:
+        q_pos = repo.get_queue_position(active_job.id)
+        conn.close()
+        if request.headers.get("hx-request"):
+            return get_episode_card(episode_id)
+        return {
+            "status": "already_queued",
+            "job_id": active_job.id,
+            "queue_position": q_pos,
+            "llm_provider": chosen_llm,
+        }
+
+    repo.update_episode_status(episode_id, EpisodeStatus.SUMMARIZING_LLM, error_message="")
+    job = repo.create_job(
+        job_type="summarize_text_llm",
+        episode_id=episode_id,
+        model_id=chosen_llm,
+    )
+    q_pos = repo.get_queue_position(job.id)
+    conn.close()
+    logger.info(
+        f"[QUEUE] Episódio #{episode_id} '{ep.title}' adicionado à fila de REPROCESSAMENTO SÓ DE TEXTO VIA LLM "
+        f"(Job #{job.id}, Posição na fila: #{q_pos}, Provedor LLM: '{chosen_llm}')"
+    )
+    if request.headers.get("hx-request"):
+        return get_episode_card(episode_id)
+    return {
+        "status": "queued",
+        "job_id": job.id,
+        "queue_position": q_pos,
+        "mode": "text_only_llm",
         "llm_provider": chosen_llm,
     }
 

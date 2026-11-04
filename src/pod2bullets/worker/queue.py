@@ -18,6 +18,7 @@ from pod2bullets.models import (
     Job,
     JobCancelError,
     JobStatus,
+    JobType,
 )
 from pod2bullets.naming import slugify
 from pod2bullets.transcriber.base import TranscriberEngine, TranscriptionResult
@@ -93,12 +94,51 @@ class BackgroundWorker:
                 raise ValueError(f"Episódio {job.episode_id} não encontrado")
 
             feed = repo.get_feed(episode.feed_id)
+
+            # Mode A: Reprocess ONLY the existing local text transcript via LLM (no MP3 download, no ASR)
+            if job.job_type == JobType.SUMMARIZE_TEXT_LLM:
+                llm_prov = (job.model_id or "gemini").strip()
+                if "|" in llm_prov:
+                    _, parsed_llm = parse_job_models(llm_prov)
+                    llm_prov = parsed_llm or "gemini"
+                logger.info(
+                    f"[WORKER] === Iniciando Job #{job.id} (Reprocessar Somente Texto via LLM) | "
+                    f"Podcast: '{feed.title if feed else '?'}' | "
+                    f"Episódio #{episode.id}: '{episode.title}' | LLM: {llm_prov} ==="
+                )
+                _check_cancelled()
+                repo.update_episode_status(
+                    episode.id, EpisodeStatus.SUMMARIZING_LLM, error_message=""
+                )
+                repo.update_job_status(job.id, JobStatus.RUNNING, progress_percent=50.0)
+
+                llm_svc = LLMService(repo)
+                summary_rec = llm_svc.summarize_episode(
+                    episode_id=episode.id,
+                    provider=llm_prov,
+                )
+                _check_cancelled()
+
+                repo.update_episode_status(
+                    episode.id,
+                    EpisodeStatus.COMPLETED,
+                    error_message="",
+                )
+                repo.update_job_status(job.id, JobStatus.COMPLETED, progress_percent=100.0)
+                logger.info(
+                    f"[WORKER] === Job #{job.id} (Reprocessamento de Texto via LLM) CONCLUÍDO! "
+                    f"Modelo usado: {summary_rec.model_name} em {summary_rec.duration_proc_seconds}s "
+                    f"-> {summary_rec.summary_path} ==="
+                )
+                return True
+
+            # Mode B: Full Pipeline (from MP3 -> Local ASR Transcription -> Delete MP3 -> Optional LLM Text Summary)
             asr_model_id, llm_provider = parse_job_models(job.model_id)
             llm_info_str = (
                 f" + Resumo LLM ({llm_provider})" if llm_provider else " (Apenas Transcrição Local)"
             )
             logger.info(
-                f"[WORKER] === Iniciando Job #{job.id} | "
+                f"[WORKER] === Iniciando Job #{job.id} (Desde o MP3) | "
                 f"Podcast: '{feed.title if feed else '?'}' | "
                 f"Episódio #{episode.id}: '{episode.title}' | "
                 f"ASR Local: {asr_model_id}{llm_info_str} ==="
@@ -258,13 +298,15 @@ class BackgroundWorker:
                 audio_path.unlink(missing_ok=True)
             repo.cancel_job(job.id)
         except Exception as e:
-            logger.error(f"[WORKER] Falha ao executar job #{job.id}: {e}", exc_info=True)
+            logger.error(f"[WORKER] Falha ao executar job #{job.id}: {e}")
             if audio_path and audio_path.exists():
                 audio_path.unlink(missing_ok=True)
             repo.update_job_status(job.id, JobStatus.FAILED, error_message=str(e))
+            has_existing_tx = len(repo.list_episode_transcripts(job.episode_id)) > 0
+            target_status = EpisodeStatus.COMPLETED if has_existing_tx else EpisodeStatus.FAILED
             repo.update_episode_status(
                 job.episode_id,
-                EpisodeStatus.FAILED,
+                target_status,
                 local_audio_path="",
                 error_message=str(e),
             )

@@ -24,6 +24,7 @@ class JobType(str, Enum):
     TRANSCRIBE = "transcribe"
     DOWNLOAD_AND_TRANSCRIBE = "download_and_transcribe"
     DOWNLOAD_AND_SUMMARIZE_LLM = "download_and_summarize_llm"
+    SUMMARIZE_TEXT_LLM = "summarize_text_llm"
 
 
 class JobStatus(str, Enum):
