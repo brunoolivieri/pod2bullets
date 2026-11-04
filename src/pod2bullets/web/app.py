@@ -117,6 +117,7 @@ def create_app() -> FastAPI:
         sub_lists = repo.list_all_lists()
         all_feeds = repo.list_feeds(list_id=list_id)
         all_models = ModelRegistry().list_models()
+        llm_cfg = LLMService(repo).get_config()
 
         selected_feed = repo.get_feed(feed_id) if feed_id is not None else None
         episodes_with_feed = []
@@ -128,12 +129,22 @@ def create_app() -> FastAPI:
                 d = ep.model_dump()
                 d["feed_title"] = selected_feed.title
                 transcripts = repo.list_episode_transcripts(ep.id)
-                d["proc_time"] = transcripts[0].duration_proc_seconds if transcripts else None
+                summaries = repo.list_episode_summaries(ep.id)
+                d["has_transcript"] = len(transcripts) > 0
+                d["has_summary"] = len(summaries) > 0
+                d["latest_summary_id"] = summaries[0].id if summaries else None
+                d["proc_time"] = (
+                    transcripts[0].duration_proc_seconds
+                    if transcripts
+                    else (summaries[0].duration_proc_seconds if summaries else None)
+                )
                 d["tx_model_id"] = (
                     transcripts[0].model_id if transcripts else settings.default_model_id
                 )
                 active_job = repo.get_active_job_for_episode(ep.id)
                 d["job_status"] = active_job.status.value if active_job else ""
+                d["job_type"] = active_job.job_type.value if active_job else ""
+                d["job_model"] = active_job.model_id if active_job else ""
                 d["progress"] = active_job.progress_percent if active_job else 0.0
                 d["q_pos"] = repo.get_queue_position(active_job.id) if active_job else 1
                 episodes_with_feed.append(d)
@@ -149,6 +160,7 @@ def create_app() -> FastAPI:
                 "current_feed_id": feed_id,
                 "selected_feed": selected_feed,
                 "models": all_models,
+                "llm_cfg": llm_cfg,
                 "episodes": episodes_with_feed,
             },
         )

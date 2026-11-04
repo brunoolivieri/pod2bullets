@@ -1,4 +1,4 @@
-"""Background worker for automated Download -> Transcription -> Audio Cleanup pipeline."""
+"""Background worker for automated Download -> Local Transcription OR Direct LLM Summarization -> Audio Cleanup."""
 
 import json
 import logging
@@ -11,7 +11,8 @@ from pod2bullets.config import settings
 from pod2bullets.db.connection import get_db_connection
 from pod2bullets.db.repository import Repository
 from pod2bullets.downloader.service import DownloaderService
-from pod2bullets.models import Episode, EpisodeStatus, Job, JobStatus
+from pod2bullets.llm.service import LLMService
+from pod2bullets.models import Episode, EpisodeStatus, Job, JobStatus, JobType
 from pod2bullets.naming import slugify
 from pod2bullets.transcriber.base import TranscriberEngine, TranscriptionResult
 from pod2bullets.transcriber.registry import ModelRegistry
@@ -71,7 +72,7 @@ class BackgroundWorker:
             logger.info(
                 f"[WORKER] === Iniciando Job #{job.id} ({job.job_type.value}) | "
                 f"Podcast: '{feed.title if feed else '?'}' | "
-                f"Episódio #{episode.id}: '{episode.title}' | Modelo: {model_id} ==="
+                f"Episódio #{episode.id}: '{episode.title}' | Alvo: {model_id} ==="
             )
 
             # 1. Download phase (downloads if audio is not present on disk)
@@ -96,7 +97,43 @@ class BackgroundWorker:
                     episode.id, progress_callback=on_dl_progress
                 )
 
-            # 2. Automatic transcription phase
+            # 2A. Direct LLM Audio Summarization flow (New Feature!)
+            if job.job_type == JobType.DOWNLOAD_AND_SUMMARIZE_LLM:
+                logger.info(
+                    f"[WORKER] Iniciando resumo direto via LLM ({model_id}) para o episódio #{episode.id}..."
+                )
+                repo.update_episode_status(episode.id, EpisodeStatus.SUMMARIZING_LLM)
+                repo.update_job_status(job.id, JobStatus.RUNNING, progress_percent=55.0)
+
+                llm_svc = LLMService(repo)
+
+                def on_llm_progress(p: float):
+                    repo.update_job_status(
+                        job.id, JobStatus.RUNNING, progress_percent=round(50.0 + (p * 0.5), 1)
+                    )
+
+                summary_rec = llm_svc.summarize_audio_direct(
+                    episode_id=episode.id,
+                    audio_path=audio_path,
+                    provider=model_id,
+                    progress_callback=on_llm_progress,
+                )
+
+                if audio_path.exists():
+                    audio_path.unlink(missing_ok=True)
+                    logger.info(
+                        f"[WORKER] Arquivo de áudio apagado após resumo direto via LLM: {audio_path}"
+                    )
+
+                repo.update_episode_status(episode.id, EpisodeStatus.COMPLETED, local_audio_path="")
+                repo.update_job_status(job.id, JobStatus.COMPLETED, progress_percent=100.0)
+                logger.info(
+                    f"[WORKER] === Job #{job.id} (Resumo Direto LLM) CONCLUÍDO em "
+                    f"{summary_rec.duration_proc_seconds}s -> {summary_rec.summary_path} ==="
+                )
+                return True
+
+            # 2B. Local ASR Transcription flow (Existing Feature — 100% preserved)
             logger.info(
                 f"[WORKER] Iniciando transcrição automática do episódio #{episode.id} "
                 f"com modelo '{model_id}'..."
@@ -164,7 +201,7 @@ class BackgroundWorker:
                 duration_proc_seconds=result.duration_proc_seconds,
             )
 
-            # 4. Delete the audio (.mp3/etc.) file after processing to save disk space (Item 3)
+            # 4. Delete the audio (.mp3/etc.) file after processing to save disk space
             if audio_path.exists():
                 audio_path.unlink(missing_ok=True)
                 logger.info(

@@ -1,91 +1,104 @@
 {% extends "base.html" %}
 
 {% block content %}
-<div class="models-container">
+<div class="models-container" style="max-width: 1080px;">
     <div class="content-header">
-        <h2>🤖 Configuração de LLMs e Prompt de Resumo</h2>
-        <span class="badge-total">5 provedores suportados (ChatGPT, Claude, Gemini, DeepSeek, Qwen)</span>
+        <div>
+            <h2>🤖 Central de Controle de APIs & LLMs</h2>
+            <p style="color: var(--text-muted); font-size: 0.9rem; margin-top: 4px;">
+                Gerencie individualmente suas chaves de API, escolha o modelo de cada provedor e customize o prompt de resumo.
+                A última opção selecionada é sempre lembrada automaticamente nos episódios.
+            </p>
+        </div>
+        <span class="badge-total">{{ llm_cfg.registered_providers|length }} de 5 APIs cadastradas</span>
     </div>
 
+    <!-- 1. Prompt Customizável Unificado -->
     <div class="model-card" style="flex-direction: column; align-items: stretch;">
-        <p style="color: var(--text-muted); font-size: 0.92rem; margin-bottom: 14px;">
-            Escolha o provedor LLM, informe sua API Key e personalize o <strong>Prompt de Resumo</strong>.
-            As configurações ficam salvas localmente no banco SQLite e são usadas ao resumir qualquer transcrição.
-        </p>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+            <h3>📝 Prompt Customizável para Resumo (Direto por Áudio ou via Transcrição)</h3>
+            <span style="font-size: 0.8rem; color: #60a5fa;">Usado em todas as chamadas de resumo</span>
+        </div>
 
-        <form hx-post="/llm/config" hx-target="#llm-save-feedback" hx-swap="innerHTML" class="llm-form">
-            <div class="llm-form-row">
-                <div class="llm-field">
-                    <label>Provedor LLM Ativo:</label>
-                    <select name="provider" id="cfg-provider-select" onchange="syncProviderFields(this.value)">
-                        {% for pid, pinfo in llm_cfg.providers.items() %}
-                        <option value="{{ pid }}"
-                                data-model="{{ pinfo.model }}"
-                                data-masked="{{ pinfo.masked_key }}"
-                                {% if llm_cfg.active_provider == pid %}selected{% endif %}>
-                            {{ pinfo.name }} {% if pinfo.has_key %}(Chave configurada ✅: {{ pinfo.masked_key }}){% else %}(Sem chave ⚠️){% endif %}
-                        </option>
-                        {% endfor %}
-                    </select>
-                </div>
-
-                <div class="llm-field">
-                    <label>Modelo do Provedor:</label>
-                    <input type="text"
-                           id="cfg-model-input"
-                           name="model_name"
-                           value="{{ llm_cfg.providers[llm_cfg.active_provider].model }}"
-                           required>
-                </div>
-
-                <div class="llm-field">
-                    <label>API Key do Provedor Selecionado:</label>
-                    <input type="password"
-                           name="api_key"
-                           placeholder="Cole sua API Key aqui (deixe vazio para manter a atual)">
-                </div>
-            </div>
-
-            <div class="llm-field" style="margin-top: 16px;">
-                <label>Prompt Padrão para Resumir Transcrições:</label>
-                <textarea name="prompt" rows="7" class="llm-prompt-textarea" required>{{ llm_cfg.prompt }}</textarea>
-            </div>
-
-            <div style="display: flex; justify-content: flex-end; margin-top: 14px;">
-                <button type="submit" class="btn-download" style="width: auto; padding: 10px 24px;">
-                    💾 Salvar Configurações e Prompt
+        <form hx-post="/llm/prompt" hx-target="#prompt-save-feedback" hx-swap="innerHTML">
+            <textarea name="prompt" rows="6" class="llm-prompt-textarea" required>{{ llm_cfg.prompt }}</textarea>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 10px;">
+                <div id="prompt-save-feedback"></div>
+                <button type="submit" class="btn-download" style="width: auto; padding: 9px 22px;">
+                    💾 Salvar Prompt Customizado
                 </button>
             </div>
         </form>
-
-        <div id="llm-save-feedback"></div>
     </div>
 
-    <div class="model-card" style="flex-direction: column; align-items: stretch;">
-        <h3>Provedores e Modelos Recomendados</h3>
-        <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 12px; margin-top: 10px;">
-            {% for pid, pinfo in llm_cfg.providers.items() %}
-            <div style="background: #0f172a; border: 1px solid var(--border-color); border-radius: 6px; padding: 12px;">
-                <strong style="color: #fff;">{{ pinfo.name }}</strong>
-                <p style="font-size: 0.82rem; color: var(--text-muted); margin-top: 4px;">
-                    Modelo atual: <code>{{ pinfo.model }}</code><br>
-                    Status da Chave: {% if pinfo.has_key %}<span style="color: #10b981;">Configurada ({{ pinfo.masked_key }})</span>{% else %}<span style="color: #f59e0b;">Não configurada</span>{% endif %}
-                </p>
+    <!-- 2. Grid de Provedores de LLM (Cards Individuais para facilitar o controle) -->
+    <h3 style="color: #fff; margin-top: 6px;">🔑 Provedores de LLM e Chaves de API</h3>
+    <div class="llm-cards-grid">
+        {% for pid, pinfo in llm_cfg.providers.items() %}
+        <div class="llm-provider-card {% if pinfo.has_key %}configured{% endif %} {% if llm_cfg.last_direct_provider == pid %}active-provider{% endif %}">
+            <div class="llm-provider-header">
+                <div>
+                    <h4>{{ pinfo.name }}</h4>
+                    {% if llm_cfg.last_direct_provider == pid %}
+                    <span class="badge-last-used">★ Último Selecionado / Padrão</span>
+                    {% endif %}
+                </div>
+                <div>
+                    {% if pinfo.has_key %}
+                    <span class="badge-installed">✅ Cadastrada ({{ pinfo.masked_key }})</span>
+                    {% else %}
+                    <span style="font-size: 0.8rem; color: #94a3b8;">⚪ Sem chave</span>
+                    {% endif %}
+                </div>
             </div>
-            {% endfor %}
+
+            <form hx-post="/llm/provider/{{ pid }}" hx-target="#feedback-{{ pid }}" hx-swap="innerHTML" class="llm-provider-form">
+                <div class="llm-field">
+                    <label>Modelo:</label>
+                    <input type="text"
+                           id="model-input-{{ pid }}"
+                           name="model_name"
+                           value="{{ pinfo.model }}"
+                           required>
+                    {% if pinfo.suggested_models %}
+                    <div class="suggested-models">
+                        {% for sm in pinfo.suggested_models %}
+                        <button type="button"
+                                class="chip-model"
+                                onclick="document.getElementById('model-input-{{ pid }}').value='{{ sm }}'">
+                            {{ sm }}
+                        </button>
+                        {% endfor %}
+                    </div>
+                    {% endif %}
+                </div>
+
+                <div class="llm-field" style="margin-top: 10px;">
+                    <label>API Key {% if pinfo.has_key %}(deixe em branco para manter a chave atual){% endif %}:</label>
+                    <input type="password"
+                           name="api_key"
+                           placeholder="{% if pinfo.has_key %}Chave já salva ({{ pinfo.masked_key }}){% else %}Cole sua API Key de {{ pinfo.name }}{% endif %}">
+                </div>
+
+                <div style="display: flex; gap: 8px; margin-top: 14px; align-items: center; justify-content: space-between;">
+                    <button type="submit" class="btn-download" style="flex: 1; padding: 8px 14px;">
+                        💾 Salvar & Selecionar
+                    </button>
+                    {% if pinfo.has_key %}
+                    <button type="button"
+                            class="btn-delete"
+                            hx-delete="/llm/provider/{{ pid }}/key"
+                            hx-confirm="Deseja remover a API Key de {{ pinfo.name }}?"
+                            hx-target="#feedback-{{ pid }}"
+                            hx-swap="innerHTML">
+                        🗑️ Remover Chave
+                    </button>
+                    {% endif %}
+                </div>
+                <div id="feedback-{{ pid }}" style="margin-top: 8px; font-size: 0.82rem;"></div>
+            </form>
         </div>
+        {% endfor %}
     </div>
 </div>
-
-<script>
-    function syncProviderFields(providerId) {
-        const sel = document.getElementById('cfg-provider-select');
-        const opt = sel.options[sel.selectedIndex];
-        const model = opt.getAttribute('data-model');
-        if (model) {
-            document.getElementById('cfg-model-input').value = model;
-        }
-    }
-</script>
 {% endblock %}
-

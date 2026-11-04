@@ -118,7 +118,11 @@ def get_system_status(db_path: Path | None = None) -> SystemStatusInfo:
     pct = round(float(top_job.get("progress_percent") or 0.0), 1)
     model_id = top_job.get("model_id") or settings.default_model_id
 
-    if ep_status == "transcribing" or pct >= 50.0:
+    if ep_status == "summarizing_llm" or (
+        top_job.get("job_type") == "download_and_summarize_llm" and pct >= 50.0
+    ):
+        action = f"Resumindo áudio via LLM ({model_id}): {ep_title} ({pct}%)"
+    elif ep_status == "transcribing" or pct >= 50.0:
         action = f"Transcrevendo ({model_id}): {ep_title} ({pct}%)"
     elif top_job.get("status") == "running":
         action = f"Baixando áudio: {ep_title} ({pct}%)"

@@ -75,3 +75,15 @@ Especificação detalhada de cada passo em [PLAN.md](PLAN.md#5-passos-de-execuç
 - **Verificação (WSL Ubuntu-26.04):**
   - `ruff check .` e `ruff format --check .`: OK.
   - `pytest -v`: **19 passed in 7.73s**.
+
+
+### 2026-11-04 — Opção de Resumir Direto via LLM (Áudio -> API LLM -> Resumo) + Nova Central de Controle de APIs — Gemini CLI
+- **Feito:**
+  - **Botão "✨ Baixar e Resumir (LLM)" ao lado de "⬇️ Baixar e Transcrever" (`index.html`, `episodes.py`, `queue.py`, `llm/service.py`):**
+    - Baixa o áudio sob demanda, envia diretamente para a API de LLM selecionada com o prompt customizável, gera e salva o resumo (`.txt` e SQLite), apaga o `.mp3` após processar e disponibiliza leitura online (`📑 Ler Resumo Online`) e download direto (`💾 Baixar Resumo (.TXT)`), mantendo intacto o fluxo de transcrição local.
+    - Lembra sempre a última opção de LLM escolhida (`last_direct_provider` na tabela `settings`).
+  - **Nova Central de Controle de APIs & LLMs (`llm_settings.html`, `routes/llm.py`):**
+    - Grid com cards individuais para cada um dos 5 provedores (**Gemini**, **ChatGPT**, **Claude**, **DeepSeek**, **Qwen**), mostrando status de chave cadastrada, chips de modelos sugeridos, botão de salvar/selecionar e botão de remover chave individualmente, além do editor do Prompt Customizável.
+- **Verificação (WSL Ubuntu-26.04):**
+  - `ruff check .` e `ruff format --check .`: OK.
+  - `pytest -v`: **19 passed in 8.33s**.

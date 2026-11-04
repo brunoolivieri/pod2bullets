@@ -13,6 +13,7 @@ from pod2bullets.logging_config import get_active_log_paths, is_suppressed_polli
 from pod2bullets.models import EpisodeStatus
 from pod2bullets.system_status import activity_tracker
 from pod2bullets.web.app import create_app
+from pod2bullets.worker.queue import BackgroundWorker
 
 
 def test_web_ui_pages_and_new_features(tmp_path: Path):
@@ -145,6 +146,46 @@ def test_web_ui_pages_and_new_features(tmp_path: Path):
     res_dl_sum = client.get("/llm/summaries/1/download")
     assert res_dl_sum.status_code == 200
     assert "attachment" in res_dl_sum.headers["content-disposition"]
+
+    # 4b. Direct Audio-to-LLM Summarization ("Baixar e Resumir (LLM)") + Remembering Last Option
+    settings.podcasts_dir = tmp_path / "podcasts"
+    settings.tmp_dir = tmp_path / "tmp"
+    client.post(
+        "/llm/provider/gemini",
+        data={"model_name": "gemini-2.5-flash", "api_key": "AIzaSyTestDirectKey12345"},
+    )
+    client.post("/llm/prompt", data={"prompt": "Resuma o áudio diretamente em tópicos:"})
+
+    res_direct = client.post("/episodes/2/summarize-direct", data={"llm_provider": "gemini"})
+    assert res_direct.status_code == 200
+    assert res_direct.json()["llm_provider"] == "gemini"
+    assert client.get("/llm/config").json()["last_direct_provider"] == "gemini"
+
+    def mock_direct_audio_and_llm(req: httpx.Request):
+        url = str(req.url)
+        if url.endswith(".mp3"):
+            return httpx.Response(200, content=b"FAKE_MP3_BYTES", headers={"content-length": "14"})
+        return httpx.Response(
+            200,
+            json={
+                "candidates": [
+                    {"content": {"parts": [{"text": "• Resumo Direto do Áudio via Gemini"}]}}
+                ]
+            },
+        )
+
+    worker = BackgroundWorker(db_path=db_file)
+    with patch(
+        "httpx.Client",
+        return_value=httpx.Client(transport=httpx.MockTransport(mock_direct_audio_and_llm)),
+    ):
+        assert worker.process_next_job() is True
+
+    # Verify summary can be read online on /view/2 and downloaded as .txt, and MP3 was deleted
+    res_view2 = client.get("/view/2")
+    assert res_view2.status_code == 200
+    assert "Resumo Direto do Áudio via Gemini" in res_view2.text
+    assert client.delete("/llm/provider/gemini/key").status_code == 200
 
     # 5. Dual logs (YYYY-MM-DD-HH-MM-APP.log and transcricao.log), Log Viewer & Polling suppression (Items 8-12)
     paths = get_active_log_paths()

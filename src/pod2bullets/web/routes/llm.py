@@ -1,4 +1,4 @@
-"""Web routes for LLM configuration, editable summarization prompt, and episode summarization."""
+"""Web routes for LLM configuration, per-provider API control, editable prompt, and episode summarization."""
 
 import html
 import logging
@@ -20,12 +20,12 @@ def get_llm_config():
     repo = Repository(conn)
     cfg = LLMService(repo).get_config()
     conn.close()
-    # Mask raw keys in JSON response
     safe_providers = {}
     for pid, pdata in cfg["providers"].items():
         safe_providers[pid] = {k: v for k, v in pdata.items() if k != "api_key"}
     return {
         "active_provider": cfg["active_provider"],
+        "last_direct_provider": cfg["last_direct_provider"],
         "prompt": cfg["prompt"],
         "providers": safe_providers,
     }
@@ -35,7 +35,7 @@ def get_llm_config():
 def save_llm_config(
     request: Request,
     provider: str = Form(...),
-    prompt: str = Form(...),
+    prompt: str | None = Form(None),
     model_name: str | None = Form(None),
     api_key: str | None = Form(None),
 ):
@@ -59,12 +59,79 @@ def save_llm_config(
         return Response(
             content=f"""
             <div style="padding: 10px 14px; background: rgba(16, 185, 129, 0.15); border: 1px solid #10b981; color: #34d399; border-radius: 6px; font-weight: 600; margin-top: 10px;">
-                ✅ Configurações e Prompt salvos com sucesso! (Provedor ativo: {prov_label})
+                ✅ Configuração salva com sucesso! ({prov_label})
             </div>
             """,
             media_type="text/html",
         )
     return {"ok": True, "provider": provider}
+
+
+@router.post("/provider/{provider_id}")
+def save_single_provider_api(
+    provider_id: str,
+    request: Request,
+    model_name: str = Form(...),
+    api_key: str | None = Form(None),
+):
+    """Save API key and model for a specific provider card in the LLM Control Center."""
+    conn = get_db_connection()
+    repo = Repository(conn)
+    svc = LLMService(repo)
+    try:
+        svc.save_config(
+            provider=provider_id,
+            model_name=model_name,
+            api_key=api_key,
+        )
+    except Exception as e:
+        conn.close()
+        raise HTTPException(status_code=400, detail=str(e))
+    conn.close()
+
+    if request.headers.get("hx-request"):
+        return Response(
+            content='<span style="color: #10b981; font-weight: 700;">✅ API salva e selecionada! Recarregando...</span><script>setTimeout(() => location.reload(), 500);</script>',
+            media_type="text/html",
+        )
+    return {"ok": True, "provider": provider_id}
+
+
+@router.delete("/provider/{provider_id}/key")
+def delete_single_provider_key(provider_id: str, request: Request):
+    """Delete stored API key for a specific provider."""
+    conn = get_db_connection()
+    repo = Repository(conn)
+    svc = LLMService(repo)
+    svc.clear_api_key(provider_id)
+    conn.close()
+
+    if request.headers.get("hx-request"):
+        return Response(
+            content='<span style="color: #f87171; font-weight: 700;">🗑️ Chave removida! Recarregando...</span><script>setTimeout(() => location.reload(), 500);</script>',
+            media_type="text/html",
+        )
+    return {"ok": True, "provider": provider_id}
+
+
+@router.post("/prompt")
+def save_custom_prompt_route(request: Request, prompt: str = Form(...)):
+    """Save the customizable summarization prompt."""
+    conn = get_db_connection()
+    repo = Repository(conn)
+    LLMService(repo).save_prompt_only(prompt)
+    conn.close()
+
+    if request.headers.get("hx-request"):
+        return Response(
+            content="""
+            <div style="padding: 10px 14px; background: rgba(16, 185, 129, 0.15); border: 1px solid #10b981; color: #34d399; border-radius: 6px; font-weight: 600; margin-top: 10px;">
+                ✅ Prompt customizável salvo com sucesso! Ele será usado nos próximos resumos.
+            </div>
+            """,
+            media_type="text/html",
+        )
+    return {"ok": True}
 
 
 @router.post("/summarize/{episode_id}")
@@ -146,4 +213,3 @@ def download_summary_txt(summary_id: int):
         media_type="text/plain; charset=utf-8",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
-

@@ -40,4 +40,3 @@ def list_all_log_files():
         }
         for f in files
     ]
-

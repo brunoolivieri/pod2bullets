@@ -14,7 +14,8 @@ class EpisodeStatus(str, Enum):
     DOWNLOADED = "downloaded"  # Audio file saved locally
     QUEUED_TRANSCRIPTION = "queued_transcription"
     TRANSCRIBING = "transcribing"
-    COMPLETED = "completed"  # Audio downloaded and transcribed (.txt ready)
+    SUMMARIZING_LLM = "summarizing_llm"  # Direct LLM audio summarization in progress
+    COMPLETED = "completed"  # Processed (.txt transcript and/or LLM summary ready)
     FAILED = "failed"
 
 
@@ -22,6 +23,7 @@ class JobType(str, Enum):
     DOWNLOAD = "download"
     TRANSCRIBE = "transcribe"
     DOWNLOAD_AND_TRANSCRIBE = "download_and_transcribe"
+    DOWNLOAD_AND_SUMMARIZE_LLM = "download_and_summarize_llm"
 
 
 class JobStatus(str, Enum):

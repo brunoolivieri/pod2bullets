@@ -9,7 +9,7 @@
         <div class="transcript-actions-bar" style="flex-wrap: wrap; align-items: center;">
             {% if active_transcript %}
             <span style="font-size: 0.85rem; color: #94a3b8; margin-right: 8px;">
-                ⏱️ Processado em: <strong>{{ active_transcript.duration_proc_seconds or '?' }}s</strong>
+                ⏱️ Transcrito em: <strong>{{ active_transcript.duration_proc_seconds or '?' }}s</strong>
                 ({{ active_transcript.word_count }} palavras) | Modelo: <code>{{ active_transcript.model_id }}</code>
             </span>
             <a href="/episodes/{{ episode.id }}/transcripts/{{ active_transcript.model_id }}/download" class="btn-txt">
@@ -18,10 +18,10 @@
             <button class="btn-copy" onclick="navigator.clipboard.writeText(document.getElementById('transcript-text').innerText); alert('Transcrição copiada para a área de transferência!');">
                 📋 Copiar Texto na Íntegra
             </button>
-            <a href="#resumo-ia" class="btn-view" style="background: #2563eb;">
-                ✨ Ir para Resumo com IA (LLM)
-            </a>
             {% endif %}
+            <a href="#resumo-ia" class="btn-view" style="background: #2563eb;">
+                ✨ Ver / Gerar Resumo (LLM)
+            </a>
         </div>
     </div>
 
@@ -38,44 +38,57 @@
         </div>
 
         {% if episode %}
-        <form hx-post="/episodes/{{ episode.id }}/download"
-              hx-swap="none"
-              onsubmit="alert('Episódio adicionado à fila para reprocessamento!'); setTimeout(() => window.location.href='/?feed_id={{ episode.feed_id }}', 600);"
-              style="display: flex; gap: 8px; align-items: center;">
-            <select name="model_id" class="select-inline-model" style="margin-bottom: 0; width: auto;">
-                {% for m in models %}
-                <option value="{{ m.id }}" {% if m.is_default %}selected{% endif %}>{{ m.name }}</option>
-                {% endfor %}
-            </select>
-            <button type="submit" class="btn-reprocess">🔄 Reprocessar Áudio</button>
-        </form>
+        <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+            <form hx-post="/episodes/{{ episode.id }}/download"
+                  hx-swap="none"
+                  onsubmit="alert('Episódio adicionado à fila de transcrição local!'); setTimeout(() => window.location.href='/?feed_id={{ episode.feed_id }}', 500);"
+                  style="display: flex; gap: 6px; align-items: center;">
+                <select name="model_id" class="select-inline-model" style="margin-bottom: 0; width: auto;">
+                    {% for m in models %}
+                    <option value="{{ m.id }}" {% if m.is_default %}selected{% endif %}>{{ m.name }}</option>
+                    {% endfor %}
+                </select>
+                <button type="submit" class="btn-reprocess">🔄 Transcrever Localmente</button>
+            </form>
+
+            <form hx-post="/episodes/{{ episode.id }}/summarize-direct"
+                  hx-swap="none"
+                  onsubmit="alert('Episódio adicionado à fila de Resumo Direto via LLM!'); setTimeout(() => window.location.href='/?feed_id={{ episode.feed_id }}', 500);"
+                  style="display: flex; gap: 6px; align-items: center;">
+                <select name="llm_provider" class="select-inline-model" style="margin-bottom: 0; width: auto;">
+                    {% for pid, p in llm_cfg.providers.items() %}
+                    <option value="{{ pid }}" {% if llm_cfg.last_direct_provider == pid %}selected{% endif %}>
+                        {{ p.name }} {% if p.has_key %}✅{% else %}⚠️{% endif %}
+                    </option>
+                    {% endfor %}
+                </select>
+                <button type="submit" class="btn-reprocess" style="border-color: #6366f1;">🤖 Baixar & Resumir Direto (LLM)</button>
+            </form>
+        </div>
         {% endif %}
     </div>
 
-    <!-- Leitura da Transcrição na Íntegra -->
-    <div class="transcript-content-box">
+    <!-- Leitura da Transcrição na Íntegra (quando houver transcrição local) -->
+    {% if plain_text %}
+    <div class="transcript-content-box" style="margin-bottom: 28px;">
         <h3 style="margin-bottom: 8px; color: #e2e8f0; font-size: 1rem;">📖 Transcrição na Íntegra</h3>
-        {% if plain_text %}
         <pre id="transcript-text" class="plain-text-display">{{ plain_text }}</pre>
-        {% else %}
-        <p class="muted-note">Nenhuma transcrição encontrada para este episódio.</p>
-        {% endif %}
     </div>
+    {% endif %}
 
-    <!-- Seção de Resumo via LLM (ChatGPT, Claude, Gemini, DeepSeek, Qwen) -->
-    {% if episode and active_transcript %}
-    <hr style="border: none; border-top: 1px solid var(--border-color); margin: 30px 0;">
-
+    <!-- Seção de Resumos Gerados + Painel para Resumir com LLM -->
     <div id="resumo-ia" class="llm-summary-panel">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-            <h3>🤖 Resumir Transcrição com LLM (ChatGPT, Claude, Gemini, DeepSeek, Qwen)</h3>
-            <a href="/llm/settings" class="btn-manage-models">⚙️ Configurar API Keys dos LLMs</a>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 10px;">
+            <h3>🤖 Resumos via LLM (Leitura Online e Download .TXT)</h3>
+            <a href="/llm/settings" class="btn-manage-models">⚙️ Gerenciar APIs e Prompt Padrão</a>
         </div>
 
+        {% if active_transcript %}
         <form hx-post="/llm/summarize/{{ episode.id }}"
               hx-target="#llm-summary-output"
               hx-swap="afterbegin"
-              class="llm-form">
+              class="llm-form"
+              style="margin-bottom: 18px;">
             <div class="llm-form-row">
                 <div class="llm-field">
                     <label>Provedor LLM:</label>
@@ -83,8 +96,8 @@
                         {% for pid, pinfo in llm_cfg.providers.items() %}
                         <option value="{{ pid }}"
                                 data-model="{{ pinfo.model }}"
-                                {% if llm_cfg.active_provider == pid %}selected{% endif %}>
-                            {{ pinfo.name }} {% if pinfo.has_key %}(Chave OK ✅){% else %}(Sem Chave ⚠️){% endif %}
+                                {% if llm_cfg.last_direct_provider == pid %}selected{% endif %}>
+                            {{ pinfo.name }} {% if pinfo.has_key %}(Cadastrada ✅: {{ pinfo.masked_key }}){% else %}(Sem Chave ⚠️){% endif %}
                         </option>
                         {% endfor %}
                     </select>
@@ -95,51 +108,59 @@
                     <input type="text"
                            id="llm-model-input"
                            name="model_name"
-                           value="{{ llm_cfg.providers[llm_cfg.active_provider].model }}"
-                           placeholder="Ex: gpt-4o-mini, gemini-2.5-flash, deepseek-chat">
+                           value="{{ llm_cfg.providers[llm_cfg.last_direct_provider].model }}">
                 </div>
 
                 <div class="llm-field">
-                    <label>API Key (opcional se já salva):</label>
+                    <label>API Key (opcional se já cadastrada):</label>
                     <input type="password"
                            name="api_key"
-                           placeholder="Deixe em branco para usar a chave já salva">
+                           placeholder="Deixe vazio para usar a chave já cadastrada">
                 </div>
             </div>
 
             <div class="llm-field" style="margin-top: 12px;">
-                <label>Prompt para Resumir (editável — será salvo automaticamente):</label>
-                <textarea name="prompt" rows="5" class="llm-prompt-textarea">{{ llm_cfg.prompt }}</textarea>
+                <label>Prompt Customizável (será salvo automaticamente):</label>
+                <textarea name="prompt" rows="4" class="llm-prompt-textarea">{{ llm_cfg.prompt }}</textarea>
             </div>
 
             <div style="display: flex; gap: 10px; margin-top: 12px; justify-content: flex-end;">
-                <button type="submit" class="btn-download" style="width: auto; padding: 10px 22px;">
-                    ✨ Salvar Prompt e Gerar Resumo Agora
+                <button type="submit" class="btn-llm-direct" style="width: auto; padding: 10px 22px;">
+                    ✨ Resumir Transcrição com LLM
                 </button>
             </div>
         </form>
+        {% endif %}
 
-        <div id="llm-summary-output" style="margin-top: 20px;">
-            {% for s in summaries %}
-            <div class="summary-result-card" style="background: #0f172a; border: 1px solid #334155; border-radius: 8px; padding: 20px; margin-top: 16px;">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 10px;">
-                    <div>
-                        <strong style="color: #60a5fa; font-size: 1.05rem;">✨ Resumo ({{ s.provider }} — {{ s.model_name }})</strong>
-                        <span style="font-size: 0.8rem; color: #94a3b8; margin-left: 10px;">⏱️ {{ s.duration_proc_seconds or '?' }}s</span>
+        <div id="llm-summary-output">
+            {% if summaries %}
+                {% for s in summaries %}
+                <div class="summary-result-card" style="background: #0f172a; border: 1px solid #3b82f6; border-radius: 8px; padding: 20px; margin-top: 16px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 10px;">
+                        <div>
+                            <strong style="color: #60a5fa; font-size: 1.05rem;">✨ Resumo ({{ s.provider|upper }} — {{ s.model_name }})</strong>
+                            <span style="font-size: 0.8rem; color: #94a3b8; margin-left: 10px;">⏱️ {{ s.duration_proc_seconds or '?' }}s</span>
+                        </div>
+                        <div style="display: flex; gap: 8px;">
+                            <button class="btn-copy" onclick="navigator.clipboard.writeText(document.getElementById('summary-text-{{ s.id }}').innerText); alert('Resumo copiado!');">
+                                📋 Copiar Resumo
+                            </button>
+                            <a href="/llm/summaries/{{ s.id }}/download" class="btn-txt">💾 Baixar Resumo (.TXT)</a>
+                        </div>
                     </div>
-                    <div style="display: flex; gap: 8px;">
-                        <a href="/llm/summaries/{{ s.id }}/download" class="btn-txt">💾 Exportar Resumo (.TXT)</a>
-                    </div>
+                    <pre id="summary-text-{{ s.id }}" class="plain-text-display" style="margin-top: 8px;">{{ s.summary_text }}</pre>
                 </div>
-                <pre class="plain-text-display" style="margin-top: 8px;">{{ s.summary_text }}</pre>
-            </div>
-            {% endfor %}
+                {% endfor %}
+            {% else %}
+                <p class="muted-note">Nenhum resumo gerado ainda para este episódio.</p>
+            {% endif %}
         </div>
     </div>
 
     <script>
         function updateModelInput(providerId) {
             const sel = document.getElementById('llm-provider-select');
+            if (!sel) return;
             const opt = sel.options[sel.selectedIndex];
             const defaultModel = opt.getAttribute('data-model');
             if (defaultModel) {
@@ -147,6 +168,5 @@
             }
         }
     </script>
-    {% endif %}
 </div>
 {% endblock %}

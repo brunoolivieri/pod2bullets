@@ -302,3 +302,124 @@ body { background: var(--bg-color); color: var(--text-main); height: 100vh; disp
     line-height: 1.45;
     font-family: inherit;
 }
+
+
+/* Dual Actions Grid (Local ASR vs Direct LLM Summary) & LLM Control Center */
+.ep-actions {
+    min-width: 390px;
+}
+
+.dual-actions-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    text-align: left;
+}
+
+.action-box {
+    background: #0f172a;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.action-box-llm {
+    border-color: rgba(99, 102, 241, 0.5);
+    background: rgba(99, 102, 241, 0.06);
+}
+
+.action-box-label {
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: #cbd5e1;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
+.btn-llm-direct {
+    background: #6366f1;
+    color: #fff;
+    border: none;
+    padding: 10px 12px;
+    border-radius: 6px;
+    font-weight: 600;
+    cursor: pointer;
+    width: 100%;
+    font-size: 0.85rem;
+}
+.btn-llm-direct:hover {
+    background: #4f46e5;
+}
+
+.llm-cards-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(310px, 1fr));
+    gap: 16px;
+}
+
+.llm-provider-card {
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    padding: 18px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+}
+
+.llm-provider-card.configured {
+    border-color: rgba(16, 185, 129, 0.5);
+}
+
+.llm-provider-card.active-provider {
+    box-shadow: 0 0 0 2px #3b82f6;
+}
+
+.llm-provider-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 14px;
+    gap: 8px;
+}
+
+.llm-provider-header h4 {
+    color: #fff;
+    font-size: 1.05rem;
+    margin-bottom: 4px;
+}
+
+.badge-last-used {
+    display: inline-block;
+    background: rgba(59, 130, 246, 0.2);
+    color: #60a5fa;
+    border: 1px solid #3b82f6;
+    font-size: 0.72rem;
+    padding: 2px 7px;
+    border-radius: 999px;
+    font-weight: 700;
+}
+
+.suggested-models {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    margin-top: 4px;
+}
+
+.chip-model {
+    background: #0f172a;
+    color: #94a3b8;
+    border: 1px solid #334155;
+    border-radius: 4px;
+    padding: 2px 7px;
+    font-size: 0.72rem;
+    cursor: pointer;
+}
+.chip-model:hover {
+    color: #fff;
+    border-color: #60a5fa;
+}
