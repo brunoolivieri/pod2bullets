@@ -406,5 +406,96 @@ class Repository:
             params.append(error_message)
 
         params.append(job_id)
-        cur.execute(f"UPDATE jobs SET {', '.join(updates)} WHERE id = ?", tuple(params))
+        cur.execute(
+            f"UPDATE jobs SET {', '.join(updates)} WHERE id = ? AND status != 'cancelled'",
+            tuple(params),
+        )
         self.conn.commit()
+
+    def is_job_cancelled(self, job_id: int) -> bool:
+        """Check if a job has been marked as cancelled by the user."""
+        cur = self.conn.cursor()
+        cur.execute("SELECT status FROM jobs WHERE id = ?", (job_id,))
+        row = cur.fetchone()
+        return bool(row and row["status"] == "cancelled")
+
+    def list_queue_jobs(self, limit_history: int = 12) -> list[dict]:
+        """List all running/pending jobs (in queue order) plus recent completed/cancelled/failed jobs."""
+        cur = self.conn.cursor()
+        cur.execute(
+            """
+            SELECT j.id, j.job_type, j.episode_id, j.model_id, j.status,
+                   j.progress_percent, j.error_message, j.created_at, j.updated_at,
+                   e.title AS episode_title, e.feed_id, e.status AS ep_status,
+                   f.title AS feed_title
+            FROM jobs j
+            LEFT JOIN episodes e ON e.id = j.episode_id
+            LEFT JOIN feeds f ON f.id = e.feed_id
+            WHERE j.status IN ('running', 'pending')
+            ORDER BY CASE WHEN j.status = 'running' THEN 0 ELSE 1 END, j.id ASC
+            """
+        )
+        active = [dict(r) for r in cur.fetchall()]
+        for idx, item in enumerate(active, start=1):
+            item["queue_position"] = idx
+
+        cur.execute(
+            """
+            SELECT j.id, j.job_type, j.episode_id, j.model_id, j.status,
+                   j.progress_percent, j.error_message, j.created_at, j.updated_at,
+                   e.title AS episode_title, e.feed_id, e.status AS ep_status,
+                   f.title AS feed_title
+            FROM jobs j
+            LEFT JOIN episodes e ON e.id = j.episode_id
+            LEFT JOIN feeds f ON f.id = e.feed_id
+            WHERE j.status NOT IN ('running', 'pending')
+            ORDER BY j.id DESC
+            LIMIT ?
+            """,
+            (limit_history,),
+        )
+        history = [dict(r) for r in cur.fetchall()]
+        for item in history:
+            item["queue_position"] = None
+
+        return active + history
+
+    def cancel_job(self, job_id: int) -> Optional[Job]:
+        """Cancel a pending or running job and restore episode status appropriately."""
+        job = self.get_job(job_id)
+        if not job:
+            return None
+        cur = self.conn.cursor()
+        cur.execute(
+            "UPDATE jobs SET status = 'cancelled', error_message = 'Cancelado pelo usuário', updated_at = datetime('now') WHERE id = ?",
+            (job_id,),
+        )
+        # Restore episode status: if it already has transcripts or summaries, mark COMPLETED; otherwise AVAILABLE
+        has_tx = len(self.list_episode_transcripts(job.episode_id)) > 0
+        has_sum = len(self.list_episode_summaries(job.episode_id)) > 0
+        target_ep_status = (
+            EpisodeStatus.COMPLETED if (has_tx or has_sum) else EpisodeStatus.AVAILABLE
+        )
+        cur.execute(
+            "UPDATE episodes SET status = ?, error_message = NULL WHERE id = ?",
+            (target_ep_status.value, job.episode_id),
+        )
+        self.conn.commit()
+        return self.get_job(job_id)
+
+    def cancel_all_active_jobs(self) -> int:
+        """Cancel all pending and running jobs in the queue."""
+        cur = self.conn.cursor()
+        cur.execute("SELECT id FROM jobs WHERE status IN ('pending', 'running')")
+        ids = [r["id"] for r in cur.fetchall()]
+        for jid in ids:
+            self.cancel_job(jid)
+        return len(ids)
+
+    def clear_finished_jobs(self) -> int:
+        """Remove completed, failed, and cancelled jobs from the queue history."""
+        cur = self.conn.cursor()
+        cur.execute("DELETE FROM jobs WHERE status IN ('completed', 'failed', 'cancelled')")
+        count = cur.rowcount
+        self.conn.commit()
+        return count

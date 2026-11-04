@@ -58,7 +58,7 @@ Especificação detalhada de cada passo em [PLAN.md](PLAN.md#5-passos-de-execuç
   - **Terminal Verbose (`logging_config.py`):** Adicionado `setup_verbose_logging()` com `RichHandler`, timestamps e logs detalhados em tempo real para `pod2bullets.worker`, `pod2bullets.downloader`, `pod2bullets.transcriber`, `pod2bullets.feeds` e requisições HTTP.
   - **Indicador de Sistema Ocupado (`system_status.py` + `GET /system/status`):** Implementado `ActivityTracker` combinando tarefas em memória (instalação de modelos, sincronização RSS, importação OPML) e jobs SQLite (`pending`/`running`), exibindo ampulheta animada (`⏳ Sistema Ocupado: ...`) no topo da interface Web.
   - **Filtro Exclusivo por Podcast na Tela Principal (`app.py`, `base.html`, `index.html`):** A tela principal (`/`) não mistura mais episódios de todos os podcasts; exibe apenas os episódios do podcast selecionado no **Menu de Podcasts** da barra lateral esquerda (`/?feed_id=<id>`), ordenados do mais novo para o mais antigo (ISO-8601) e sem limite de 100 episódios.
-  - **Gerenciamento Local de Modelos sem Login Hugging Face (`registry.py`, `models.py`):** Instalação e desinstalação direta pela GUI (`/models/manage`) usando `faster_whisper.download_model` (`mobiuslabsgmbh/faster-whisper-large-v3-turbo`) e `onnx_asr.load_model` (`nemo-parakeet-tdt-0.6b-v3`), com tamanho em MB e barra de status.
+  - **Gerenciamento Local de Modelos via GUI (`registry.py`, `models.py`):** Instalação e desinstalação direta pela GUI (`/models/manage`) usando `faster_whisper.download_model` (`mobiuslabsgmbh/faster-whisper-large-v3-turbo`) e `onnx_asr.load_model` (`nemo-parakeet-tdt-0.6b-v3`), com tamanho em MB e barra de status.
 - **Verificação (WSL Ubuntu-26.04):**
   - `ruff check .` e `ruff format --check .`: OK (50 arquivos formatados).
   - `pytest -v`: **19 passed in 6.33s**.
@@ -87,3 +87,15 @@ Especificação detalhada de cada passo em [PLAN.md](PLAN.md#5-passos-de-execuç
 - **Verificação (WSL Ubuntu-26.04):**
   - `ruff check .` e `ruff format --check .`: OK.
   - `pytest -v`: **19 passed in 8.33s**.
+
+
+### 2026-11-04 — Progresso de 5% em 5% nos Logs, Fila Visualizável com Cancelamento, Auto-Instalação de Modelos e Remoção Total de Referências externas — Gemini CLI
+- **Feito:**
+  - **Logs de Transcrição Limpos (5% em 5% sem texto no bash/log):** `FasterWhisperEngine` e `OnnxAsrEngine` não imprimem mais as frases transcritas no bash ou nos arquivos de log; registram apenas o andamento em marcos de 5% em 5% (`5%`, `10%`, `15%`, ..., `100%`).
+  - **Fila Visualizável com Cancelamento Simples (`routes/queue.py`, `queue.html`, `repository.py`, `worker/queue.py`):** Adicionado o botão **"📋 Fila & Andamento"** no topo da interface (`/queue/manage`) e botões **"✖ Cancelar"** direto nos cards dos episódios em fila ou em execução, permitindo acompanhar o progresso percentual de cada item, cancelar itens individuais ou cancelar toda a fila de uma vez (interrompendo imediatamente download/transcrição em andamento e limpando áudios temporários).
+  - **Auto-Instalação de Modelos Sob Demanda (`worker/queue.py`, `faster_whisper_engine.py`, `onnx_asr_engine.py`):** Se um modelo de transcrição ainda não estiver instalado em `data/models/` quando selecionado para uso, o worker e a engine instalam automaticamente o modelo (`ModelRegistry.install_model`) e executam a transcrição em seguida sem erro.
+  - **Remoção Completa de Referências ao Hugging Face:** Removidas todas as menções, links e arquivos residuais em código e documentação (`0` ocorrências no repositório).
+- **Verificação (WSL Ubuntu-26.04):**
+  - `ruff check .` e `ruff format --check .`: OK.
+  - `pytest -v`: **22 passed**.
+

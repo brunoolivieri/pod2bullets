@@ -1,4 +1,4 @@
-"""Background worker for automated Download -> Local Transcription OR Direct LLM Summarization -> Audio Cleanup."""
+"""Background worker for automated Download -> Auto Model Install -> Local Transcription OR Direct LLM Summarization -> Audio Cleanup."""
 
 import json
 import logging
@@ -12,10 +12,17 @@ from pod2bullets.db.connection import get_db_connection
 from pod2bullets.db.repository import Repository
 from pod2bullets.downloader.service import DownloaderService
 from pod2bullets.llm.service import LLMService
-from pod2bullets.models import Episode, EpisodeStatus, Job, JobStatus, JobType
+from pod2bullets.models import (
+    Episode,
+    EpisodeStatus,
+    Job,
+    JobCancelError,
+    JobStatus,
+    JobType,
+)
 from pod2bullets.naming import slugify
 from pod2bullets.transcriber.base import TranscriberEngine, TranscriptionResult
-from pod2bullets.transcriber.registry import ModelRegistry
+from pod2bullets.transcriber.registry import CATALOG, ModelRegistry
 
 logger = logging.getLogger("pod2bullets.worker")
 
@@ -52,7 +59,7 @@ class BackgroundWorker:
                 time.sleep(2.0)
 
     def process_next_job(self) -> bool:
-        """Fetch and execute next pending job in queue, then delete temporary audio file."""
+        """Fetch and execute next pending job in queue, auto-installing models if needed, and deleting temporary audio file."""
         conn = get_db_connection(self.db_path)
         repo = Repository(conn)
         job: Job = repo.get_next_pending_job()
@@ -61,6 +68,11 @@ class BackgroundWorker:
             return False
 
         repo.update_job_status(job.id, JobStatus.RUNNING, progress_percent=5.0)
+        audio_path: Path | None = None
+
+        def _check_cancelled() -> None:
+            if repo.is_job_cancelled(job.id):
+                raise JobCancelError(f"Job #{job.id} cancelado pelo usuário.")
 
         try:
             episode: Episode = repo.get_episode(job.episode_id)
@@ -74,9 +86,23 @@ class BackgroundWorker:
                 f"Podcast: '{feed.title if feed else '?'}' | "
                 f"Episódio #{episode.id}: '{episode.title}' | Alvo: {model_id} ==="
             )
+            _check_cancelled()
+
+            # 0. If this is a local ASR transcription job and the chosen model is NOT installed yet,
+            # automatically install it before proceeding!
+            if (
+                job.job_type != JobType.DOWNLOAD_AND_SUMMARIZE_LLM
+                and model_id in CATALOG
+                and not self.registry.is_model_installed(model_id)
+            ):
+                logger.info(
+                    f"[WORKER] Modelo '{model_id}' ainda não está instalado. "
+                    f"Instalando automaticamente para executar o Job #{job.id}..."
+                )
+                self.registry.install_model(model_id)
+                _check_cancelled()
 
             # 1. Download phase (downloads if audio is not present on disk)
-            audio_path: Path
             last_db_update = [0.0]
 
             if episode.local_audio_path and Path(episode.local_audio_path).exists():
@@ -86,6 +112,7 @@ class BackgroundWorker:
                 downloader = DownloaderService(repo)
 
                 def on_dl_progress(p: float):
+                    _check_cancelled()
                     now = time.monotonic()
                     if now - last_db_update[0] >= 0.6 or p >= 99.5:
                         last_db_update[0] = now
@@ -96,8 +123,9 @@ class BackgroundWorker:
                 audio_path = downloader.download_episode(
                     episode.id, progress_callback=on_dl_progress
                 )
+            _check_cancelled()
 
-            # 2A. Direct LLM Audio Summarization flow (New Feature!)
+            # 2A. Direct LLM Audio Summarization flow
             if job.job_type == JobType.DOWNLOAD_AND_SUMMARIZE_LLM:
                 logger.info(
                     f"[WORKER] Iniciando resumo direto via LLM ({model_id}) para o episódio #{episode.id}..."
@@ -108,6 +136,7 @@ class BackgroundWorker:
                 llm_svc = LLMService(repo)
 
                 def on_llm_progress(p: float):
+                    _check_cancelled()
                     repo.update_job_status(
                         job.id, JobStatus.RUNNING, progress_percent=round(50.0 + (p * 0.5), 1)
                     )
@@ -118,8 +147,9 @@ class BackgroundWorker:
                     provider=model_id,
                     progress_callback=on_llm_progress,
                 )
+                _check_cancelled()
 
-                if audio_path.exists():
+                if audio_path and audio_path.exists():
                     audio_path.unlink(missing_ok=True)
                     logger.info(
                         f"[WORKER] Arquivo de áudio apagado após resumo direto via LLM: {audio_path}"
@@ -133,7 +163,7 @@ class BackgroundWorker:
                 )
                 return True
 
-            # 2B. Local ASR Transcription flow (Existing Feature — 100% preserved)
+            # 2B. Local ASR Transcription flow
             logger.info(
                 f"[WORKER] Iniciando transcrição automática do episódio #{episode.id} "
                 f"com modelo '{model_id}'..."
@@ -144,6 +174,7 @@ class BackgroundWorker:
             engine: TranscriberEngine = self.registry.get_engine(model_id)
 
             def on_transcribe_progress(p: float):
+                _check_cancelled()
                 now = time.monotonic()
                 if now - last_db_update[0] >= 0.6 or p >= 99.5:
                     last_db_update[0] = now
@@ -155,6 +186,7 @@ class BackgroundWorker:
                 audio_path=audio_path,
                 progress_callback=on_transcribe_progress,
             )
+            _check_cancelled()
 
             # 3. Save .txt and .meta.json files in data/podcasts/<feed>/<ep>/transcripts/
             transcripts_dir = audio_path.parent / "transcripts"
@@ -166,11 +198,9 @@ class BackgroundWorker:
             txt_path = transcripts_dir / txt_filename
             meta_path = transcripts_dir / meta_filename
 
-            # Save plain text
             with open(txt_path, "w", encoding="utf-8") as f:
                 f.write(result.plain_text)
 
-            # Save metadata and segments
             with open(meta_path, "w", encoding="utf-8") as f:
                 json.dump(
                     {
@@ -188,7 +218,6 @@ class BackgroundWorker:
                     ensure_ascii=False,
                 )
 
-            # Record transcript in SQLite
             repo.record_transcript(
                 episode_id=episode.id,
                 model_id=model_id,
@@ -202,7 +231,7 @@ class BackgroundWorker:
             )
 
             # 4. Delete the audio (.mp3/etc.) file after processing to save disk space
-            if audio_path.exists():
+            if audio_path and audio_path.exists():
                 audio_path.unlink(missing_ok=True)
                 logger.info(
                     f"[WORKER] Arquivo de áudio apagado após transcrição concluída: {audio_path} "
@@ -217,10 +246,25 @@ class BackgroundWorker:
                 f"-> {txt_path} ==="
             )
 
+        except JobCancelError:
+            logger.info(
+                f"[WORKER] Job #{job.id} (Episódio #{job.episode_id}) cancelado pelo usuário."
+            )
+            if audio_path and audio_path.exists():
+                audio_path.unlink(missing_ok=True)
+            repo.cancel_job(job.id)
         except Exception as e:
-            logger.error(f"[WORKER] Falha ao executar job #{job.id}: {e}", exc_info=True)
-            repo.update_job_status(job.id, JobStatus.FAILED, error_message=str(e))
-            repo.update_episode_status(job.episode_id, EpisodeStatus.FAILED, error_message=str(e))
+            if repo.is_job_cancelled(job.id):
+                logger.info(f"[WORKER] Job #{job.id} interrompido por cancelamento do usuário.")
+                if audio_path and audio_path.exists():
+                    audio_path.unlink(missing_ok=True)
+                repo.cancel_job(job.id)
+            else:
+                logger.error(f"[WORKER] Falha ao executar job #{job.id}: {e}", exc_info=True)
+                repo.update_job_status(job.id, JobStatus.FAILED, error_message=str(e))
+                repo.update_episode_status(
+                    job.episode_id, EpisodeStatus.FAILED, error_message=str(e)
+                )
         finally:
             conn.close()
 

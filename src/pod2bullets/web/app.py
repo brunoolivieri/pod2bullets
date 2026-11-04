@@ -21,7 +21,7 @@ from pod2bullets.logging_config import (
 )
 from pod2bullets.system_status import get_system_status
 from pod2bullets.transcriber.registry import ModelRegistry
-from pod2bullets.web.routes import episodes, feeds, lists, llm, logs, models
+from pod2bullets.web.routes import episodes, feeds, lists, llm, logs, models, queue
 from pod2bullets.worker.queue import BackgroundWorker
 
 setup_verbose_logging()
@@ -85,6 +85,7 @@ def create_app() -> FastAPI:
     app.include_router(episodes.router)
     app.include_router(llm.router)
     app.include_router(logs.router)
+    app.include_router(queue.router)
 
     @app.get("/system/status", response_class=HTMLResponse)
     def system_status_badge():
@@ -98,11 +99,11 @@ def create_app() -> FastAPI:
             )
             return Response(
                 content=f"""
-                <div class="system-status busy" title="Processando em segundo plano">
+                <a href="/queue/manage" class="system-status busy" style="text-decoration: none;" title="Clique para ver a fila e cancelar itens">
                     <span class="hourglass-icon">⏳</span>
                     <span class="busy-text">Sistema Ocupado: {status["primary"]}</span>
                     {count_badge}
-                </div>
+                </a>
                 """,
                 media_type="text/html",
             )
@@ -142,6 +143,7 @@ def create_app() -> FastAPI:
                     transcripts[0].model_id if transcripts else settings.default_model_id
                 )
                 active_job = repo.get_active_job_for_episode(ep.id)
+                d["job_id"] = active_job.id if active_job else 0
                 d["job_status"] = active_job.status.value if active_job else ""
                 d["job_type"] = active_job.job_type.value if active_job else ""
                 d["job_model"] = active_job.model_id if active_job else ""
@@ -200,6 +202,26 @@ def create_app() -> FastAPI:
                 "lists": sub_lists,
                 "all_feeds": all_feeds,
                 "models": all_models,
+            },
+        )
+
+    @app.get("/queue/manage", response_class=HTMLResponse)
+    def manage_queue_page(request: Request):
+        conn = get_db_connection()
+        repo = Repository(conn)
+        sub_lists = repo.list_all_lists()
+        all_feeds = repo.list_feeds()
+        all_models = ModelRegistry().list_models()
+        conn.close()
+
+        return templates.TemplateResponse(
+            request=request,
+            name="queue.html",
+            context={
+                "lists": sub_lists,
+                "all_feeds": all_feeds,
+                "models": all_models,
+                "queue_panel_html": queue._render_queue_panel_html(),
             },
         )
 

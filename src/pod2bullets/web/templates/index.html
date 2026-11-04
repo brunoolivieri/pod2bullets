@@ -141,7 +141,12 @@
 
                 {% elif ep.status.value == 'queued_download' and ep.job_status == 'pending' %}
                 <div class="status-box queued" hx-get="/episodes/card/{{ ep.id }}" hx-trigger="every 1.5s" hx-target="#ep-card-{{ ep.id }}" hx-swap="outerHTML">
-                    <div><span>🕒</span> Na fila de processamento (#{{ ep.q_pos or 1 }})...</div>
+                    <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px;">
+                        <span>🕒 Na fila (#{{ ep.q_pos or 1 }})...</span>
+                        {% if ep.job_id %}
+                        <button type="button" class="btn-cancel-inline" hx-post="/queue/{{ ep.job_id }}/cancel?from_card=1" hx-target="#ep-card-{{ ep.id }}" hx-swap="outerHTML">✖ Cancelar</button>
+                        {% endif %}
+                    </div>
                     <div class="progress-bar-container">
                         <div class="progress-bar-fill" style="width: 8%; opacity: 0.6;"></div>
                     </div>
@@ -149,7 +154,12 @@
 
                 {% elif ep.status.value in ['queued_download', 'downloading'] %}
                 <div class="status-box downloading" hx-get="/episodes/card/{{ ep.id }}" hx-trigger="every 1.2s" hx-target="#ep-card-{{ ep.id }}" hx-swap="outerHTML">
-                    <div><span class="hourglass-icon">⏳</span> Baixando áudio sob demanda ({{ ep.progress or 0 }}%)...</div>
+                    <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px;">
+                        <span><span class="hourglass-icon">⏳</span> Baixando/Preparando ({{ ep.progress or 0 }}%)...</span>
+                        {% if ep.job_id %}
+                        <button type="button" class="btn-cancel-inline" hx-post="/queue/{{ ep.job_id }}/cancel?from_card=1" hx-target="#ep-card-{{ ep.id }}" hx-swap="outerHTML">✖ Cancelar</button>
+                        {% endif %}
+                    </div>
                     <div class="progress-bar-container">
                         <div class="progress-bar-fill" style="width: {{ ep.progress or 15 }}%;"></div>
                     </div>
@@ -157,7 +167,12 @@
 
                 {% elif ep.status.value == 'summarizing_llm' %}
                 <div class="status-box transcribing" hx-get="/episodes/card/{{ ep.id }}" hx-trigger="every 1.2s" hx-target="#ep-card-{{ ep.id }}" hx-swap="outerHTML">
-                    <div><span class="hourglass-icon">⏳</span> Enviando áudio e resumindo via LLM ({{ ep.progress or 55 }}%)...</div>
+                    <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px;">
+                        <span><span class="hourglass-icon">⏳</span> Resumindo via LLM ({{ ep.progress or 55 }}%)...</span>
+                        {% if ep.job_id %}
+                        <button type="button" class="btn-cancel-inline" hx-post="/queue/{{ ep.job_id }}/cancel?from_card=1" hx-target="#ep-card-{{ ep.id }}" hx-swap="outerHTML">✖ Cancelar</button>
+                        {% endif %}
+                    </div>
                     <div class="progress-bar-container">
                         <div class="progress-bar-fill transcribe" style="width: {{ ep.progress or 55 }}%;"></div>
                     </div>
@@ -165,7 +180,12 @@
 
                 {% elif ep.status.value in ['queued_transcription', 'transcribing'] %}
                 <div class="status-box transcribing" hx-get="/episodes/card/{{ ep.id }}" hx-trigger="every 1.2s" hx-target="#ep-card-{{ ep.id }}" hx-swap="outerHTML">
-                    <div><span class="hourglass-icon">⏳</span> Transcrevendo localmente com IA ({{ ep.progress or 0 }}%)...</div>
+                    <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px;">
+                        <span><span class="hourglass-icon">⏳</span> Transcrevendo ({{ ep.progress or 0 }}%)...</span>
+                        {% if ep.job_id %}
+                        <button type="button" class="btn-cancel-inline" hx-post="/queue/{{ ep.job_id }}/cancel?from_card=1" hx-target="#ep-card-{{ ep.id }}" hx-swap="outerHTML">✖ Cancelar</button>
+                        {% endif %}
+                    </div>
                     <div class="progress-bar-container">
                         <div class="progress-bar-fill transcribe" style="width: {{ ep.progress or 50 }}%;"></div>
                     </div>

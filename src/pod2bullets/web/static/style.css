@@ -423,3 +423,171 @@ body { background: var(--bg-color); color: var(--text-main); height: 100vh; disp
     color: #fff;
     border-color: #60a5fa;
 }
+
+
+/* Queue Panel & Inline Cancellation Buttons */
+.queue-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.queue-item {
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    padding: 16px;
+}
+
+.queue-item.running {
+    border-color: #f59e0b;
+    background: rgba(245, 158, 11, 0.06);
+}
+
+.queue-item.pending {
+    border-color: #3b82f6;
+}
+
+.queue-item-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 8px;
+}
+
+.queue-item-meta {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.queue-badge {
+    display: inline-block;
+    padding: 3px 9px;
+    border-radius: 999px;
+    font-size: 0.75rem;
+    font-weight: 700;
+}
+
+.queue-badge.running {
+    background: rgba(245, 158, 11, 0.2);
+    color: #fbbf24;
+    border: 1px solid #f59e0b;
+}
+
+.queue-badge.pending {
+    background: rgba(59, 130, 246, 0.2);
+    color: #60a5fa;
+    border: 1px solid #3b82f6;
+}
+
+.queue-badge.completed {
+    background: rgba(16, 185, 129, 0.2);
+    color: #34d399;
+}
+
+.queue-badge.cancelled {
+    background: rgba(148, 163, 184, 0.2);
+    color: #94a3b8;
+}
+
+.queue-badge.failed {
+    background: rgba(239, 68, 68, 0.2);
+    color: #f87171;
+}
+
+.queue-feed-tag {
+    font-size: 0.8rem;
+    color: #94a3b8;
+    font-weight: 600;
+}
+
+.queue-mode-tag {
+    font-size: 0.78rem;
+    background: #0f172a;
+    color: #cbd5e1;
+    padding: 2px 8px;
+    border-radius: 6px;
+    border: 1px solid var(--border-color);
+}
+
+.queue-ep-title {
+    font-size: 1rem;
+    font-weight: 700;
+    color: #fff;
+    margin-bottom: 8px;
+}
+
+.queue-progress-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 0.85rem;
+    color: #cbd5e1;
+    margin-bottom: 6px;
+}
+
+.queue-pct-text {
+    font-weight: 800;
+    color: #fbbf24;
+}
+
+.btn-cancel-job {
+    background: rgba(239, 68, 68, 0.16);
+    color: #f87171;
+    border: 1px solid rgba(239, 68, 68, 0.5);
+    padding: 6px 12px;
+    border-radius: 6px;
+    font-size: 0.8rem;
+    font-weight: 700;
+    cursor: pointer;
+}
+.btn-cancel-job:hover {
+    background: #ef4444;
+    color: #fff;
+}
+
+.btn-cancel-inline {
+    background: rgba(239, 68, 68, 0.2);
+    color: #f87171;
+    border: 1px solid rgba(239, 68, 68, 0.5);
+    padding: 3px 8px;
+    border-radius: 5px;
+    font-size: 0.74rem;
+    font-weight: 700;
+    cursor: pointer;
+    white-space: nowrap;
+}
+.btn-cancel-inline:hover {
+    background: #ef4444;
+    color: #fff;
+}
+
+.queue-empty-box {
+    background: var(--card-bg);
+    border: 1px dashed var(--border-color);
+    border-radius: 10px;
+    padding: 28px;
+    text-align: center;
+    color: #94a3b8;
+    font-size: 0.95rem;
+}
+
+.queue-history-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.queue-history-row {
+    background: #0f172a;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 10px 14px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+}

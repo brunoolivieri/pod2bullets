@@ -1,8 +1,9 @@
-"""NVIDIA Parakeet-TDT via onnx-asr Engine implementation with verbose logging and chunking."""
+"""NVIDIA Parakeet-TDT via onnx-asr Engine implementation with clean 5%-step progress logging."""
 
 import logging
 import time
 from pathlib import Path
+from typing import Callable
 
 from pod2bullets.config import settings
 from pod2bullets.transcriber.audio import TARGET_SAMPLE_RATE, load_audio_to_pcm16_mono
@@ -31,13 +32,21 @@ class OnnxAsrEngine(TranscriberEngine):
     def _load_model(self):
         if self._model is not None:
             return self._model
+
+        if not self.is_available():
+            from pod2bullets.transcriber.registry import ModelRegistry
+
+            logger.info(
+                f"[TRANSCRIBER] Modelo '{self.model_id}' não instalado. "
+                "Instalando automaticamente antes de iniciar a transcrição..."
+            )
+            ModelRegistry(models_dir=self.models_dir).install_model(self.model_id)
+
         import onnx_asr
 
         self.model_dir.mkdir(parents=True, exist_ok=True)
         model_name = "nemo-parakeet-tdt-0.6b-v3"
-        logger.info(
-            f"[TRANSCRIBER] Carregando modelo ONNX '{model_name}' (quantization=int8) em {self.model_dir}..."
-        )
+        logger.info(f"[TRANSCRIBER] Carregando modelo ONNX '{model_name}' (quantization=int8)...")
         self._model = onnx_asr.load_model(model_name, path=self.model_dir, quantization="int8")
         logger.info(f"[TRANSCRIBER] Modelo '{self.model_id}' carregado com sucesso.")
         return self._model
@@ -46,17 +55,17 @@ class OnnxAsrEngine(TranscriberEngine):
         self,
         audio_path: Path,
         language: str | None = None,
-        progress_callback: callable | None = None,
+        progress_callback: Callable[[float], None] | None = None,
     ) -> TranscriptionResult:
         start_t = time.time()
-        logger.info(f"[TRANSCRIBER] Decodificando áudio via PyAV: {audio_path}...")
+        logger.info(f"[TRANSCRIBER] Decodificando áudio via PyAV: {audio_path.name}...")
         audio_data, duration = load_audio_to_pcm16_mono(audio_path)
         logger.info(
-            f"[TRANSCRIBER] Áudio decodificado: duração={duration:.1f}s ({len(audio_data)} amostras @ 16kHz)."
+            f"[TRANSCRIBER] Áudio pronto ({duration:.1f}s @ 16kHz). "
+            f"Iniciando transcrição com '{self.model_id}' (progresso reportado de 5% em 5%)..."
         )
         model = self._load_model()
 
-        # Process in 30-second chunks for long podcast episodes + live progress reporting
         chunk_sec = 30.0
         chunk_samples = int(chunk_sec * TARGET_SAMPLE_RATE)
         total_samples = len(audio_data)
@@ -73,6 +82,7 @@ class OnnxAsrEngine(TranscriberEngine):
 
         segments: list[TranscriptionSegment] = []
         text_parts: list[str] = []
+        last_logged_step = 0
 
         for offset in range(0, total_samples, chunk_samples):
             chunk = audio_data[offset : offset + chunk_samples]
@@ -93,16 +103,23 @@ class OnnxAsrEngine(TranscriberEngine):
                     TranscriptionSegment(start_sec=start_sec, end_sec=end_sec, text=chunk_text)
                 )
                 text_parts.append(chunk_text)
-                logger.info(
-                    f"[TRANSCRIBER] [{start_sec:06.1f}s -> {end_sec:06.1f}s] ({pct}%) {chunk_text[:90]}"
-                )
 
             if progress_callback:
                 progress_callback(pct)
 
+            # Log ONLY every 5% milestone (5%, 10%, 15%... 95%), never the transcribed text!
+            step_5 = int(pct // 5) * 5
+            if step_5 >= last_logged_step + 5 and step_5 <= 95:
+                last_logged_step = step_5
+                logger.info(
+                    f"[TRANSCRIBER] Progresso da transcrição ({self.model_id}): {step_5}% "
+                    f"({end_sec:.0f}s / {duration:.0f}s)"
+                )
+
         elapsed = round(time.time() - start_t, 2)
         if progress_callback:
             progress_callback(100.0)
+        logger.info(f"[TRANSCRIBER] Progresso da transcrição ({self.model_id}): 100%")
 
         full_text = " ".join(text_parts)
         logger.info(

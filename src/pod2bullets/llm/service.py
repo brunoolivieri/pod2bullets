@@ -132,6 +132,29 @@ def _raise_with_api_detail(resp: httpx.Response, provider_name: str) -> None:
     raise RuntimeError(f"Erro HTTP {resp.status_code} na API {provider_name}: {detail}")
 
 
+def _sanitize_api_key(raw_key: str | None) -> str:
+    """Clean whitespace/zero-width chars from API key and reject non-ASCII or multi-word prose."""
+    if not raw_key:
+        return ""
+    cleaned = (
+        raw_key.strip()
+        .replace("\u200b", "")
+        .replace("\u200c", "")
+        .replace("\u200d", "")
+        .replace("\ufeff", "")
+        .replace("\xa0", "")
+    )
+    if not cleaned:
+        return ""
+    # Reject masked placeholders
+    if "..." in cleaned or "•" in cleaned or cleaned == "Configurada":
+        return ""
+    # Reject accidental clipboard prose (spaces or non-ASCII characters)
+    if any(ch.isspace() for ch in cleaned) or not cleaned.isascii():
+        return ""
+    return cleaned
+
+
 class LLMService:
     def __init__(self, repo: Repository, client: httpx.Client | None = None):
         self.repo = repo
@@ -159,7 +182,11 @@ class LLMService:
         registered_list: list[dict[str, Any]] = []
 
         for pid, meta in LLM_PROVIDERS.items():
-            saved_key = self.repo.get_setting(f"llm_api_key_{pid}", "") or ""
+            raw_saved = self.repo.get_setting(f"llm_api_key_{pid}", "") or ""
+            saved_key = _sanitize_api_key(raw_saved)
+            if raw_saved and not saved_key:
+                # Auto-clean invalid non-ASCII / prose text that was accidentally pasted into settings
+                self.clear_api_key(pid)
             saved_model = (
                 self.repo.get_setting(f"llm_model_{pid}", meta["default_model"])
                 or meta["default_model"]
@@ -220,7 +247,13 @@ class LLMService:
             clean_m = model_name.strip().removeprefix("models/")
             self.repo.set_setting(f"llm_model_{provider}", clean_m)
         if api_key is not None and api_key.strip():
-            self.repo.set_setting(f"llm_api_key_{provider}", api_key.strip())
+            clean_key = _sanitize_api_key(api_key)
+            if not clean_key:
+                raise ValueError(
+                    "A API Key informada é inválida (contém espaços, acentos ou caracteres não-ASCII). "
+                    "Cole apenas o token da chave de API."
+                )
+            self.repo.set_setting(f"llm_api_key_{provider}", clean_key)
 
         logger.info(
             f"[LLM] Configuração salva via GUI: provedor='{provider}', "
@@ -393,6 +426,7 @@ class LLMService:
         chunk_size = 8 * 1024 * 1024  # 8 MiB (required multiple for Google resumable protocol)
         offset = 0
         final_json: dict[str, Any] = {}
+        last_logged_step = 0
 
         with open(audio_path, "rb") as f:
             while offset < total_size:
@@ -414,10 +448,13 @@ class LLMService:
                 _raise_with_api_detail(up_resp, "Gemini File Upload (chunk)")
                 offset += len(chunk)
                 pct_upload = (offset / total_size) * 100.0
-                logger.info(
-                    f"[LLM-DIRETO] Upload Gemini File API: {offset / (1024 * 1024):.1f} / "
-                    f"{total_mb:.1f} MB ({pct_upload:.1f}%)"
-                )
+                step_5 = int(pct_upload // 5) * 5
+                if step_5 >= last_logged_step + 5 or is_last:
+                    last_logged_step = step_5
+                    logger.info(
+                        f"[LLM-DIRETO] Upload Gemini File API: {pct_upload:.0f}% "
+                        f"({offset / (1024 * 1024):.1f} / {total_mb:.1f} MB)"
+                    )
                 if progress_callback:
                     progress_callback(10.0 + (pct_upload * 0.65))
 

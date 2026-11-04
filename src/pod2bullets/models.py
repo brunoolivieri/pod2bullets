@@ -31,6 +31,11 @@ class JobStatus(str, Enum):
     RUNNING = "running"
     COMPLETED = "completed"
     FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
+class JobCancelError(Exception):
+    """Raised when a running job or download is cancelled by the user."""
 
 
 class SubscriptionList(BaseModel):

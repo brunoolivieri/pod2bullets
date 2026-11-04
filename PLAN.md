@@ -30,7 +30,7 @@ Cliente web e de linha de comando em Python para gestão de subscrições de pod
    - Arquitetura baseada no protocolo `TranscriberEngine` + catálogo `ModelRegistry`.
    - O usuário pode manter vários modelos baixados simultaneamente em `data/models/`, visualizar na interface web quais estão instalados em disco, definir o **modelo padrão** e **escolher qual modelo rodar** ao clicar para baixar/transcrever (ou re-transcrever um episódio já baixado com outro modelo para comparar).
    - O projeto já traz **2 modelos SOTA open-source e gratuitos** pré-configurados e suportados nativamente:
-     1. **`whisper-large-v3-turbo`** (`Systran/faster-whisper-large-v3-turbo` via `faster-whisper` / CTranslate2)
+     1. **`whisper-large-v3-turbo`** (`large-v3-turbo` via `faster-whisper` / CTranslate2)
      2. **`parakeet-tdt-0.6b-v3`** (`nemo-parakeet-tdt-0.6b-v3` via `onnx-asr` / ONNX Runtime)
 6. **Execução e testes no Linux do WSL (`Ubuntu-26.04`):**
    - Todo o ciclo de vida (setup, execução do servidor, worker, linters e testes unitários/integração/e2e) roda dentro do WSL `Ubuntu-26.04` em `/mnt/c/gits/pod2bullets`.
@@ -41,8 +41,8 @@ Cliente web e de linha de comando em Python para gestão de subscrições de pod
 
 | ID no Sistema | Modelo / Checkpoint | Engine / Biblioteca | Arquitetura & Tamanho | Perfil e Pontos Fortes |
 |---------------|---------------------|---------------------|-----------------------|------------------------|
-| `whisper-large-v3-turbo` *(Padrão)* | [`Systran/faster-whisper-large-v3-turbo`](https://huggingface.co/Systran/faster-whisper-large-v3-turbo) | `faster-whisper` (`ctranslate2`) | OpenAI Whisper Large v3 Turbo (809M params, ~1.5 GB) | **Estado da arte multilíngue (99 idiomas, excelente em PT-BR e EN).** ~6× mais rápido que o `large-v3` original mantendo precisão quase idêntica. Possui filtro VAD Silero integrado para pular silêncios e vinhetas musicais. Usa ~1.8 GB de VRAM em `float16`/`int8_float16`. |
-| `parakeet-tdt-0.6b-v3` | [`istupakov/parakeet-tdt-0.6b-v3-onnx`](https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx) (`nemo-parakeet-tdt-0.6b-v3`) | `onnx-asr` (`onnxruntime`) | NVIDIA FastConformer-TDT v3 (600M params, ~650 MB em INT8 / 1.2 GB FP16) | **Estado da arte da NVIDIA (#1 em eficiência/WER no Open ASR Leaderboard).** Suporta 25 idiomas nativamente (**incluindo Português e Inglês**) com pontuação e capitalização automáticas, rodando em velocidade extrema tanto em GPU quanto em CPU. |
+| `whisper-large-v3-turbo` *(Padrão)* | `large-v3-turbo` (`mobiuslabsgmbh/faster-whisper-large-v3-turbo`) | `faster-whisper` (`ctranslate2`) | OpenAI Whisper Large v3 Turbo (809M params, ~1.5 GB) | **Estado da arte multilíngue (99 idiomas, excelente em PT-BR e EN).** ~6× mais rápido que o `large-v3` original mantendo precisão quase idêntica. Possui filtro VAD Silero integrado para pular silêncios e vinhetas musicais. Usa ~1.8 GB de VRAM em `float16`/`int8_float16`. |
+| `parakeet-tdt-0.6b-v3` | `nemo-parakeet-tdt-0.6b-v3` | `onnx-asr` (`onnxruntime`) | NVIDIA FastConformer-TDT v3 (600M params, ~650 MB em INT8 / 1.2 GB FP16) | **Estado da arte da NVIDIA (#1 em eficiência/WER no Open ASR Leaderboard).** Suporta 25 idiomas nativamente (**incluindo Português e Inglês**) com pontuação e capitalização automáticas, rodando em velocidade extrema tanto em GPU quanto em CPU. |
 
 > **Extensibilidade imediata:** O `ModelRegistry` também permite adicionar novos modelos apenas editando a configuração ou via UI/CLI (por exemplo, `whisper-large-v3` completo de 1.55B params ou `whisper-small` já ficam catalogados como opções extras instaláveis com 1 clique).
 

@@ -77,6 +77,7 @@
                     <label>API Key {% if pinfo.has_key %}(deixe em branco para manter a chave atual){% endif %}:</label>
                     <input type="password"
                            name="api_key"
+                           autocomplete="new-password"
                            placeholder="{% if pinfo.has_key %}Chave já salva ({{ pinfo.masked_key }}){% else %}Cole sua API Key de {{ pinfo.name }}{% endif %}">
                 </div>
 

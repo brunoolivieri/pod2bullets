@@ -207,6 +207,72 @@ def test_web_ui_pages_and_new_features(tmp_path: Path):
     assert is_suppressed_polling_line(
         "[2026-11-04 11:43:12] INFO     pod2bullets.web: [HTTP] GET /episodes/card/1 -> 200 (13.2ms)"
     )
+    assert is_suppressed_polling_line(
+        "[2026-11-04 11:43:12] INFO     pod2bullets.web: [HTTP] GET /queue/panel -> 200 (5.0ms)"
+    )
     assert not is_suppressed_polling_line(
         "[2026-11-04 11:43:12] INFO     pod2bullets.web: [HTTP] GET /?feed_id=1 -> 200 (15.0ms)"
     )
+
+
+def test_queue_visualization_and_cancellation(tmp_path: Path):
+    db_file = tmp_path / "queue_test.sqlite"
+    settings.db_path = db_file
+    init_db(db_file)
+
+    conn = get_db_connection(db_file)
+    db_repo = Repository(conn)
+    feed = db_repo.create_feed("Podcast Fila", "pod-fila", "http://example.com/rss")
+    ep1 = db_repo.upsert_episode(
+        feed_id=feed.id,
+        guid="q-ep-1",
+        title="Episódio Fila 1",
+        slug="episodio-fila-1",
+        audio_url="http://example.com/q1.mp3",
+    )
+    ep2 = db_repo.upsert_episode(
+        feed_id=feed.id,
+        guid="q-ep-2",
+        title="Episódio Fila 2",
+        slug="episodio-fila-2",
+        audio_url="http://example.com/q2.mp3",
+    )
+
+    app = create_app()
+    with patch.object(BackgroundWorker, "start"), patch.object(BackgroundWorker, "stop"):
+        with TestClient(app) as client:
+            # Enqueue 2 jobs
+            client.post(f"/episodes/{ep1.id}/download", data={"model_id": "fake-model"})
+            client.post(f"/episodes/{ep2.id}/download", data={"model_id": "fake-model"})
+
+            # Check queue visualization endpoints
+            resp_manage = client.get("/queue/manage")
+            assert resp_manage.status_code == 200
+            assert "Fila de Processamento" in resp_manage.text
+            assert ep1.title in resp_manage.text
+            assert ep2.title in resp_manage.text
+
+            resp_json = client.get("/queue/")
+            assert resp_json.status_code == 200
+            jobs_data = resp_json.json()["jobs"]
+            active_jobs = [j for j in jobs_data if j["status"] in ("pending", "running")]
+            assert len(active_jobs) == 2
+
+            # Cancel first job individually
+            first_job_id = active_jobs[0]["id"]
+            cancel_resp = client.post(f"/queue/{first_job_id}/cancel")
+            assert cancel_resp.status_code == 200
+            assert db_repo.is_job_cancelled(first_job_id)
+
+            # Cancel remaining active jobs
+            cancel_all_resp = client.post("/queue/cancel-all")
+            assert cancel_all_resp.status_code == 200
+            assert db_repo.get_episode(ep1.id).status.value == "available"
+            assert db_repo.get_episode(ep2.id).status.value == "available"
+
+            # Clear finished/cancelled jobs history
+            clear_resp = client.post("/queue/clear-history")
+            assert clear_resp.status_code == 200
+            assert len(db_repo.list_queue_jobs()) == 0
+
+    conn.close()

@@ -78,19 +78,29 @@ def get_episode_card(episode_id: int):
 
     cur = conn.cursor()
     cur.execute(
-        "SELECT job_type, progress_percent, status, model_id FROM jobs WHERE episode_id = ? ORDER BY id DESC LIMIT 1",
+        "SELECT id, job_type, progress_percent, status, model_id FROM jobs WHERE episode_id = ? ORDER BY id DESC LIMIT 1",
         (episode_id,),
     )
     job_row = cur.fetchone()
+    job_id = int(job_row["id"]) if job_row else 0
     progress = float(job_row["progress_percent"]) if job_row else 0.0
     job_status = job_row["status"] if job_row else ""
     job_type = job_row["job_type"] if job_row else ""
     job_model = (job_row["model_id"] if job_row else None) or settings.default_model_id
     conn.close()
 
+    cancel_inline_btn = (
+        f'<button type="button" class="btn-cancel-inline" '
+        f'hx-post="/queue/{job_id}/cancel?from_card=1" '
+        f'hx-target="#ep-card-{ep.id}" hx-swap="outerHTML" '
+        f'title="Cancelar este processamento">✖ Cancelar</button>'
+        if job_id
+        else ""
+    )
+
     all_models = ModelRegistry().list_models()
     model_options_html = "".join(
-        f'<option value="{m.id}" {"selected" if m.is_default else ""}>{m.name}</option>'
+        f'<option value="{m.id}" {"selected" if m.is_default else ""}>{m.name} {"(Instalado ✅)" if m.is_installed else "(Auto-instalar ⬇️)"}</option>'
         for m in all_models
     )
     llm_options_html = _build_llm_select_options(llm_cfg)
@@ -122,7 +132,10 @@ def get_episode_card(episode_id: int):
         )
         status_html = f"""
         <div class="status-box queued" hx-get="/episodes/card/{ep.id}" hx-trigger="every 1.5s" hx-target="#ep-card-{ep.id}" hx-swap="outerHTML">
-            <div><span>🕒</span> Na fila (#{q_pos}) [{mode_lbl}] — <code>{job_model}</code></div>
+            <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px;">
+                <span>🕒 Na fila (#{q_pos}) [{mode_lbl}] — <code>{job_model}</code></span>
+                {cancel_inline_btn}
+            </div>
             <div class="progress-bar-container">
                 <div class="progress-bar-fill" style="width: 8%; opacity: 0.6;"></div>
             </div>
@@ -131,7 +144,10 @@ def get_episode_card(episode_id: int):
     elif ep.status.value in ["queued_download", "downloading"]:
         status_html = f"""
         <div class="status-box downloading" hx-get="/episodes/card/{ep.id}" hx-trigger="every 1.2s" hx-target="#ep-card-{ep.id}" hx-swap="outerHTML">
-            <div><span class="hourglass-icon">⏳</span> Baixando áudio sob demanda ({progress}%)...</div>
+            <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px;">
+                <span><span class="hourglass-icon">⏳</span> Baixando/Preparando ({progress:.0f}%)...</span>
+                {cancel_inline_btn}
+            </div>
             <div class="progress-bar-container">
                 <div class="progress-bar-fill" style="width: {max(progress, 12)}%;"></div>
             </div>
@@ -141,7 +157,10 @@ def get_episode_card(episode_id: int):
         prov_label = LLM_PROVIDERS.get(job_model, {}).get("name", job_model)
         status_html = f"""
         <div class="status-box transcribing" hx-get="/episodes/card/{ep.id}" hx-trigger="every 1.2s" hx-target="#ep-card-{ep.id}" hx-swap="outerHTML">
-            <div><span class="hourglass-icon">⏳</span> Resumindo áudio direto via {prov_label} ({progress}%)...</div>
+            <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px;">
+                <span><span class="hourglass-icon">⏳</span> Resumindo via {prov_label} ({progress:.0f}%)...</span>
+                {cancel_inline_btn}
+            </div>
             <div class="progress-bar-container">
                 <div class="progress-bar-fill transcribe" style="width: {max(progress, 55)}%;"></div>
             </div>
@@ -150,7 +169,10 @@ def get_episode_card(episode_id: int):
     elif ep.status.value in ["queued_transcription", "transcribing"]:
         status_html = f"""
         <div class="status-box transcribing" hx-get="/episodes/card/{ep.id}" hx-trigger="every 1.2s" hx-target="#ep-card-{ep.id}" hx-swap="outerHTML">
-            <div><span class="hourglass-icon">⏳</span> Transcrevendo com {job_model} ({progress}%)...</div>
+            <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px;">
+                <span><span class="hourglass-icon">⏳</span> Transcrevendo com {job_model} ({progress:.0f}%)...</span>
+                {cancel_inline_btn}
+            </div>
             <div class="progress-bar-container">
                 <div class="progress-bar-fill transcribe" style="width: {max(progress, 50)}%;"></div>
             </div>

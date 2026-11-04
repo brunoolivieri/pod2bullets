@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="models-container" style="max-width: 980px;">
+    <div class="content-header">
+        <div>
+            <h2>📋 Fila de Processamento & Andamento</h2>
+            <p style="color: var(--text-muted); font-size: 0.9rem; margin-top: 4px;">
+                Acompanhe de forma simples o andamento de cada download, instalação de modelo, transcrição e resumo, ou cancele itens a qualquer momento.
+            </p>
+        </div>
+    </div>
+
+    {{ queue_panel_html | safe }}
+</div>
+{% endblock %}

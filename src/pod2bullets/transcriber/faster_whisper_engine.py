@@ -1,10 +1,10 @@
-"""Faster-Whisper (CTranslate2) Engine implementation with verbose terminal logging."""
+"""Faster-Whisper (CTranslate2) Engine implementation with clean 5%-step progress logging."""
 
 import logging
 import time
 from pathlib import Path
+from typing import Callable
 
-import faster_whisper
 from faster_whisper import WhisperModel
 
 from pod2bullets.config import settings
@@ -42,19 +42,19 @@ class FasterWhisperEngine(TranscriberEngine):
             return self._model
 
         if not self.is_available():
-            self.model_dir.mkdir(parents=True, exist_ok=True)
+            from pod2bullets.transcriber.registry import ModelRegistry
+
             logger.info(
-                f"[TRANSCRIBER] Modelo '{self.model_id}' ainda não instalado em disco. "
-                f"Instalando automaticamente via faster-whisper ('{self.fw_name}') em {self.model_dir}..."
+                f"[TRANSCRIBER] Modelo '{self.model_id}' não instalado. "
+                "Instalando automaticamente antes de iniciar a transcrição..."
             )
-            faster_whisper.download_model(self.fw_name, output_dir=str(self.model_dir))
-            logger.info(f"[TRANSCRIBER] Pesos de '{self.model_id}' prontos em {self.model_dir}.")
+            ModelRegistry(models_dir=self.models_dir).install_model(self.model_id)
 
         preferred_device = "cuda" if settings.device in ("cuda", "auto") else "cpu"
         if preferred_device == "cuda":
             try:
                 logger.info(
-                    f"[TRANSCRIBER] Carregando '{self.model_id}' na GPU (CUDA, int8_float16) de {self.model_dir}..."
+                    f"[TRANSCRIBER] Carregando '{self.model_id}' na GPU (CUDA, int8_float16)..."
                 )
                 self._model = WhisperModel(
                     str(self.model_dir),
@@ -64,12 +64,10 @@ class FasterWhisperEngine(TranscriberEngine):
                 return self._model
             except Exception as e:
                 logger.warning(
-                    f"[TRANSCRIBER] Aviso ao inicializar CUDA ({e}); fazendo fallback automático para CPU (int8)..."
+                    f"[TRANSCRIBER] Aviso ao inicializar CUDA ({e}); usando CPU (int8)..."
                 )
 
-        logger.info(
-            f"[TRANSCRIBER] Carregando '{self.model_id}' na CPU (int8) de {self.model_dir}..."
-        )
+        logger.info(f"[TRANSCRIBER] Carregando '{self.model_id}' na CPU (int8)...")
         self._model = WhisperModel(
             str(self.model_dir),
             device="cpu",
@@ -81,13 +79,14 @@ class FasterWhisperEngine(TranscriberEngine):
         self,
         audio_path: Path,
         language: str | None = None,
-        progress_callback: callable | None = None,
+        progress_callback: Callable[[float], None] | None = None,
     ) -> TranscriptionResult:
         start_t = time.time()
-        logger.info(f"[TRANSCRIBER] Decodificando áudio via PyAV: {audio_path}...")
+        logger.info(f"[TRANSCRIBER] Decodificando áudio via PyAV: {audio_path.name}...")
         audio_data, duration = load_audio_to_pcm16_mono(audio_path)
         logger.info(
-            f"[TRANSCRIBER] Áudio decodificado: duração={duration:.1f}s ({len(audio_data)} amostras @ 16kHz)."
+            f"[TRANSCRIBER] Áudio pronto ({duration:.1f}s @ 16kHz). "
+            f"Iniciando transcrição com '{self.model_id}' (progresso reportado de 5% em 5%)..."
         )
 
         model = self._load_model()
@@ -102,6 +101,7 @@ class FasterWhisperEngine(TranscriberEngine):
             )
             segs = []
             parts = []
+            last_logged_step = 0
             for s in segments_raw:
                 text_clean = s.text.strip()
                 if text_clean:
@@ -113,17 +113,26 @@ class FasterWhisperEngine(TranscriberEngine):
                         )
                     )
                     parts.append(text_clean)
-                    pct = min(99.0, round((s.end / duration) * 100, 1)) if duration > 0 else 50.0
+
+                pct = min(99.0, round((s.end / duration) * 100, 1)) if duration > 0 else 50.0
+                if progress_callback and duration > 0:
+                    progress_callback(pct)
+
+                # Log ONLY every 5% milestone (5%, 10%, 15%... 95%), never the transcribed text!
+                step_5 = int(pct // 5) * 5
+                if step_5 >= last_logged_step + 5 and step_5 <= 95:
+                    last_logged_step = step_5
                     logger.info(
-                        f"[TRANSCRIBER] [{s.start:06.1f}s -> {s.end:06.1f}s] ({pct}%) {text_clean[:90]}"
+                        f"[TRANSCRIBER] Progresso da transcrição ({self.model_id}): {step_5}% "
+                        f"({s.end:.0f}s / {duration:.0f}s)"
                     )
-                    if progress_callback and duration > 0:
-                        progress_callback(pct)
             return segs, parts, info
 
         try:
             segments, full_text_parts, info = _run_inference(model)
         except Exception as e:
+            if "JobCancelError" in type(e).__name__:
+                raise
             logger.warning(
                 f"[TRANSCRIBER] Falha durante inferência em GPU ({e}); recarregando em CPU (int8) e continuando..."
             )
@@ -132,6 +141,7 @@ class FasterWhisperEngine(TranscriberEngine):
 
         if progress_callback:
             progress_callback(100.0)
+        logger.info(f"[TRANSCRIBER] Progresso da transcrição ({self.model_id}): 100%")
 
         elapsed = round(time.time() - start_t, 2)
         plain_text = " ".join(full_text_parts)

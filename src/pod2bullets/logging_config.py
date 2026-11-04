@@ -26,6 +26,7 @@ SUPPRESSED_POLLING_PATHS = (
     "/system/status",
     "/models/card/",
     "/logs/tail",
+    "/queue/panel",
 )
 
 

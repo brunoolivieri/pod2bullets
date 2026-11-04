@@ -94,14 +94,21 @@ class ModelRegistry:
         expected_mb = meta["size_mb"]
 
         stop_monitor = threading.Event()
+        last_logged_step = [0]
 
         def _monitor_progress() -> None:
-            while not stop_monitor.wait(2.0):
+            while not stop_monitor.wait(1.5):
                 curr_mb = self.get_installed_size_mb(model_id)
                 pct = min(99, int((curr_mb / max(expected_mb, 1)) * 100))
                 msg = f"Instalando {meta['name']}: {curr_mb:.1f} MB / ~{expected_mb} MB ({pct}%)"
                 activity_tracker.set_task(task_key, msg)
-                logger.info(f"[MODELS] {msg}")
+                step_5 = (pct // 5) * 5
+                if step_5 >= last_logged_step[0] + 5 and step_5 <= 95:
+                    last_logged_step[0] = step_5
+                    logger.info(
+                        f"[MODELS] Progresso da instalação de '{model_id}': {step_5}% "
+                        f"({curr_mb:.1f} / ~{expected_mb} MB)"
+                    )
 
         activity_tracker.set_task(
             task_key, f"Iniciando instalação de {meta['name']} (~{expected_mb} MB)..."

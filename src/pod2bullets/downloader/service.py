@@ -49,7 +49,7 @@ class DownloaderService:
 
         hasher = hashlib.sha256()
         total_downloaded = 0
-        last_logged_bucket = -1
+        last_logged_bucket = 0
 
         try:
             with self.client.stream("GET", episode.audio_url) as resp:
@@ -69,11 +69,11 @@ class DownloaderService:
                             percent = round((total_downloaded / total_size) * 100, 1)
                             if progress_callback:
                                 progress_callback(percent)
-                            bucket = int(percent // 10)
-                            if bucket > last_logged_bucket:
+                            bucket = int(percent // 5) * 5
+                            if bucket >= last_logged_bucket + 5 and bucket <= 100:
                                 last_logged_bucket = bucket
                                 logger.info(
-                                    f"[DOWNLOAD] Episódio #{episode.id}: {percent:.1f}% "
+                                    f"[DOWNLOAD] Episódio #{episode.id}: {bucket}% "
                                     f"({total_downloaded / (1024 * 1024):.1f} / "
                                     f"{total_size / (1024 * 1024):.1f} MB)"
                                 )
