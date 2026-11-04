@@ -20,11 +20,13 @@ from pod2bullets.logging_config import (
     setup_verbose_logging,
 )
 from pod2bullets.system_status import get_system_status
+from pod2bullets.transcriber.cuda_env import ensure_cuda_libraries_loaded
 from pod2bullets.transcriber.registry import ModelRegistry
 from pod2bullets.web.routes import episodes, feeds, lists, llm, logs, models, queue
 from pod2bullets.worker.queue import BackgroundWorker
 
 setup_verbose_logging()
+ensure_cuda_libraries_loaded()
 logger = logging.getLogger("pod2bullets.web")
 
 TEMPLATES_DIR = Path(__file__).resolve().parent / "templates"

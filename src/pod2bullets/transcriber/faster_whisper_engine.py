@@ -5,8 +5,6 @@ import time
 from pathlib import Path
 from typing import Callable
 
-from faster_whisper import WhisperModel
-
 from pod2bullets.config import settings
 from pod2bullets.transcriber.audio import load_audio_to_pcm16_mono
 from pod2bullets.transcriber.base import (
@@ -14,6 +12,11 @@ from pod2bullets.transcriber.base import (
     TranscriptionResult,
     TranscriptionSegment,
 )
+from pod2bullets.transcriber.cuda_env import ensure_cuda_libraries_loaded
+
+ensure_cuda_libraries_loaded()
+
+from faster_whisper import WhisperModel  # noqa: E402
 
 logger = logging.getLogger("pod2bullets.transcriber")
 
@@ -52,6 +55,7 @@ class FasterWhisperEngine(TranscriberEngine):
 
         preferred_device = "cuda" if settings.device in ("cuda", "auto") else "cpu"
         if preferred_device == "cuda":
+            ensure_cuda_libraries_loaded()
             try:
                 logger.info(
                     f"[TRANSCRIBER] Carregando '{self.model_id}' na GPU (CUDA, int8_float16)..."
@@ -60,6 +64,9 @@ class FasterWhisperEngine(TranscriberEngine):
                     str(self.model_dir),
                     device="cuda",
                     compute_type="int8_float16",
+                )
+                logger.info(
+                    f"[TRANSCRIBER] GPU ativa! Modelo '{self.model_id}' pronto em CUDA (int8_float16)."
                 )
                 return self._model
             except Exception as e:

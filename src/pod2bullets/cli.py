@@ -1,5 +1,8 @@
 """CLI entry point for pod2bullets."""
 
+import os
+import sys
+
 import typer
 import uvicorn
 from rich.console import Console
@@ -9,7 +12,10 @@ from pod2bullets.config import settings
 from pod2bullets.db.connection import get_db_connection
 from pod2bullets.db.repository import Repository
 from pod2bullets.logging_config import setup_verbose_logging
+from pod2bullets.transcriber.cuda_env import ensure_cuda_libraries_loaded, get_nvidia_lib_dirs
 from pod2bullets.transcriber.registry import ModelRegistry
+
+ensure_cuda_libraries_loaded()
 
 app = typer.Typer(
     help="pod2bullets — Gerenciador de Podcasts & Transcrição Local SOTA",
@@ -102,6 +108,17 @@ def show_lists_cmd():
 
 
 def main():
+    if os.name == "posix" and not os.environ.get("POD2BULLETS_CUDA_REEXEC"):
+        nv_dirs = get_nvidia_lib_dirs()
+        current_ld = os.environ.get("LD_LIBRARY_PATH", "")
+        current_parts = [p for p in current_ld.split(":") if p]
+        missing = [d for d in nv_dirs if d not in current_parts]
+        if missing:
+            os.environ["LD_LIBRARY_PATH"] = ":".join(nv_dirs + current_parts)
+            os.environ["POD2BULLETS_CUDA_REEXEC"] = "1"
+            os.execv(sys.executable, [sys.executable, *sys.argv])
+
+    ensure_cuda_libraries_loaded()
     app()
 
 

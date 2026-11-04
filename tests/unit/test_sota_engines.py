@@ -86,3 +86,23 @@ def test_faster_whisper_auto_installs_when_missing(tmp_path: Path):
         engine._load_model()
         mock_install.assert_called_once_with("whisper-small")
         mock_whisper_cls.assert_called_once()
+
+
+def test_cuda_libraries_preload_and_gpu_whisper(sample_wav: Path, caplog):
+    import logging
+
+    from pod2bullets.transcriber.cuda_env import ensure_cuda_libraries_loaded, get_nvidia_lib_dirs
+
+    lib_dirs = get_nvidia_lib_dirs()
+    assert len(lib_dirs) > 0
+    loaded = ensure_cuda_libraries_loaded()
+    assert len(loaded) > 0
+
+    # If whisper-small is installed locally, verify real CUDA GPU inference without CPU fallback
+    engine = FasterWhisperEngine(model_id="whisper-small", fw_name="small")
+    if engine.is_available():
+        caplog.set_level(logging.WARNING, logger="pod2bullets.transcriber")
+        res = engine.transcribe(sample_wav, language="pt")
+        warnings = [r.message for r in caplog.records if r.levelno >= logging.WARNING]
+        assert not any("libcublas" in w or "Falha durante inferência em GPU" in w for w in warnings)
+        assert res.engine_name == "faster-whisper"

@@ -44,6 +44,9 @@ class OnnxAsrEngine(TranscriberEngine):
 
         import onnx_asr
 
+        from pod2bullets.transcriber.cuda_env import ensure_cuda_libraries_loaded
+
+        ensure_cuda_libraries_loaded()
         self.model_dir.mkdir(parents=True, exist_ok=True)
         model_name = "nemo-parakeet-tdt-0.6b-v3"
         logger.info(f"[TRANSCRIBER] Carregando modelo ONNX '{model_name}' (quantization=int8)...")

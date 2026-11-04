@@ -99,3 +99,13 @@ Especificação detalhada de cada passo em [PLAN.md](PLAN.md#5-passos-de-execuç
   - `ruff check .` e `ruff format --check .`: OK.
   - `pytest -v`: **22 passed**.
 
+
+### 2026-11-04 — Correção de `libcublas.so.12` e Execução Nativa dos Modelos Whisper na GPU (CUDA 12) — Gemini CLI
+- **Feito:**
+  - **Instalação dos Pacotes Runtime CUDA 12 no `.venv` (`pyproject.toml`):** Adicionados e instalados `nvidia-cublas-cu12`, `nvidia-cudnn-cu12` e `nvidia-cuda-runtime-cu12` no `.venv` do WSL (`Ubuntu-26.04`), fornecendo `libcublas.so.12`, `libcublasLt.so.12`, `libcudart.so.12` e `libcudnn.so.9` exigidos pelo `ctranslate2` / `faster-whisper`.
+  - **Descoberta e Pré-Carregamento Automático de Bibliotecas GPU (`src/pod2bullets/transcriber/cuda_env.py`, `cli.py`, `faster_whisper_engine.py`, `web/app.py`):** Implementado `ensure_cuda_libraries_loaded()` que localiza automaticamente os diretórios `nvidia/*/lib` do `.venv` e `/usr/lib/wsl/lib`, atualiza `LD_LIBRARY_PATH` (com auto-reexec no CLI) e pré-carrega `libcudart.so.12`, `libcublasLt.so.12`, `libcublas.so.12` e `libcudnn*.so.9` na memória com `ctypes.RTLD_GLOBAL`. Com isso, todos os modelos Whisper (`whisper-small`, `whisper-large-v3-turbo`, `whisper-large-v3`) executam diretamente na **GPU NVIDIA RTX 2060 SUPER (`CUDA`, `int8_float16`)** sem cair para CPU.
+- **Verificação (WSL Ubuntu-26.04):**
+  - `ruff check .` e `ruff format --check .`: OK.
+  - `pytest -v`: **23 passed** (incluindo teste de inferência real em GPU CUDA `test_cuda_libraries_preload_and_gpu_whisper`).
+
+
