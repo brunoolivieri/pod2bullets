@@ -8,6 +8,7 @@ from rich.table import Table
 from pod2bullets.config import settings
 from pod2bullets.db.connection import get_db_connection
 from pod2bullets.db.repository import Repository
+from pod2bullets.logging_config import setup_verbose_logging
 from pod2bullets.transcriber.registry import ModelRegistry
 
 app = typer.Typer(
@@ -23,7 +24,7 @@ app.add_typer(models_app, name="models")
 @app.callback()
 def main_callback():
     """pod2bullets CLI root."""
-    pass
+    setup_verbose_logging()
 
 
 @app.command()
@@ -37,9 +38,19 @@ def serve(
     host: str = typer.Option(settings.host, help="Host HTTP"),
     port: int = typer.Option(settings.port, help="Porta HTTP"),
 ):
-    """Inicia o servidor Web com background worker de transcrição."""
-    console.print(f"[bold cyan]Iniciando pod2bullets em http://{host}:{port}...[/bold cyan]")
-    uvicorn.run("pod2bullets.web.app:app", host=host, port=port, reload=False)
+    """Inicia o servidor Web com background worker de transcrição (modo verbose ativo)."""
+    setup_verbose_logging()
+    console.print(
+        f"[bold cyan]Iniciando pod2bullets (modo verbose) em http://{host}:{port}...[/bold cyan]"
+    )
+    uvicorn.run(
+        "pod2bullets.web.app:app",
+        host=host,
+        port=port,
+        reload=False,
+        log_level="info",
+        access_log=True,
+    )
 
 
 @models_app.command("list")
@@ -63,7 +74,7 @@ def list_models_cmd():
             m.name,
             m.engine_name,
             f"~{m.size_mb} MB",
-            "Sim" if m.is_installed else "Não (via download)",
+            "Sim" if m.is_installed else "Não (instalar pela GUI)",
             "★ Sim" if m.is_default else "",
         )
 

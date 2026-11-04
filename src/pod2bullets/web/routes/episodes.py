@@ -1,13 +1,16 @@
 """Episode listing, on-demand download trigger, web reading & .txt download routes."""
 
+import logging
 from pathlib import Path
 
-from fastapi import APIRouter, Form, HTTPException, Response
+from fastapi import APIRouter, Form, HTTPException, Request, Response
 
 from pod2bullets.config import settings
 from pod2bullets.db.connection import get_db_connection
 from pod2bullets.db.repository import Repository
 from pod2bullets.models import EpisodeStatus
+
+logger = logging.getLogger("pod2bullets.web.episodes")
 
 router = APIRouter(prefix="/episodes", tags=["episodes"])
 
@@ -33,6 +36,9 @@ def get_episode_card(episode_id: int):
 
     f = repo.get_feed(ep.feed_id)
     feed_title = f.title if f else "Podcast"
+    transcripts = repo.list_episode_transcripts(ep.id)
+    proc_time = transcripts[0].duration_proc_seconds if transcripts else None
+    tx_model_id = transcripts[0].model_id if transcripts else settings.default_model_id
 
     # Get active job progress if any
     cur = conn.cursor()
@@ -63,23 +69,40 @@ def get_episode_card(episode_id: int):
     if ep.status.value in ["queued_download", "downloading"]:
         status_html = f"""
         <div class="status-box downloading" hx-get="/episodes/card/{ep.id}" hx-trigger="every 1s" hx-target="#ep-card-{ep.id}" hx-swap="outerHTML">
-            <span class="spinner">⏳</span> Baixando áudio sob demanda ({progress}%)...
+            <div><span class="hourglass-icon">⏳</span> Baixando áudio sob demanda ({progress}%)...</div>
             {progress_bar}
         </div>
         """
     elif ep.status.value in ["queued_transcription", "transcribing"]:
         status_html = f"""
         <div class="status-box transcribing" hx-get="/episodes/card/{ep.id}" hx-trigger="every 1s" hx-target="#ep-card-{ep.id}" hx-swap="outerHTML">
-            <span class="spinner">⚙️</span> Transcrevendo localmente com IA ({progress}%)...
+            <div><span class="hourglass-icon">⏳</span> Transcrevendo localmente com IA ({progress}%)...</div>
             {progress_bar}
         </div>
         """
     elif ep.status.value == "completed":
+        proc_html = (
+            f'<span class="proc-time-label" style="font-size: 0.78rem; color: #94a3b8;">'
+            f"⏱️ Tempo: {proc_time}s</span>"
+            if proc_time is not None
+            else ""
+        )
         status_html = f"""
         <div class="completed-actions">
             <span class="badge-completed">✅ Transcrito</span>
+            {proc_html}
             <a href="/view/{ep.id}" class="btn-view">📖 Ler na Web</a>
-            <a href="/episodes/{ep.id}/transcripts/{settings.default_model_id}/download" class="btn-txt">💾 Baixar .txt</a>
+            <a href="/episodes/{ep.id}/transcripts/{tx_model_id}/download" class="btn-txt">💾 Baixar .txt</a>
+        </div>
+        """
+    elif ep.status.value == "failed":
+        err_msg = (ep.error_message or "Erro desconhecido")[:120]
+        status_html = f"""
+        <div class="completed-actions">
+            <span style="color: #ef4444; font-size: 0.8rem; font-weight: 600;" title="{err_msg}">❌ Falhou: {err_msg}</span>
+            <form hx-post="/episodes/{ep.id}/download" hx-target="#ep-card-{ep.id}" hx-swap="outerHTML">
+                <button type="submit" class="btn-download">🔄 Tentar Novamente</button>
+            </form>
         </div>
         """
     else:
@@ -95,6 +118,10 @@ def get_episode_card(episode_id: int):
         else """<div class="ep-cover-placeholder">🎙️</div>"""
     )
 
+    dur_html = (
+        f"<span>Duração: {ep.duration_seconds // 60} min</span>" if ep.duration_seconds else ""
+    )
+
     return Response(
         content=f"""
         <div class="episode-card" id="ep-card-{ep.id}">
@@ -107,6 +134,7 @@ def get_episode_card(episode_id: int):
                 <p class="ep-summary">{ep.summary[:200] if ep.summary else ""}</p>
                 <div class="ep-meta">
                     <span>Publicado: {ep.published_at or "Desconhecido"}</span>
+                    {dur_html}
                 </div>
             </div>
             <div class="ep-actions">
@@ -119,7 +147,11 @@ def get_episode_card(episode_id: int):
 
 
 @router.post("/{episode_id}/download")
-def trigger_download_and_transcribe(episode_id: int, model_id: str | None = Form(None)):
+def trigger_download_and_transcribe(
+    episode_id: int,
+    request: Request,
+    model_id: str | None = Form(None),
+):
     """User explicitly clicked to download and transcribe an episode."""
     conn = get_db_connection()
     repo = Repository(conn)
@@ -136,6 +168,12 @@ def trigger_download_and_transcribe(episode_id: int, model_id: str | None = Form
         model_id=chosen_model,
     )
     conn.close()
+    logger.info(
+        f"[QUEUE] Episódio #{episode_id} '{ep.title}' enfileirado para download + transcrição "
+        f"(Job #{job.id}, modelo='{chosen_model}')"
+    )
+    if request.headers.get("hx-request"):
+        return get_episode_card(episode_id)
     return {"status": "queued", "job_id": job.id, "model_id": chosen_model}
 
 

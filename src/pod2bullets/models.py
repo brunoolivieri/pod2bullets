@@ -61,6 +61,7 @@ class Episode(BaseModel):
     duration_seconds: Optional[int] = None
     audio_url: str
     audio_ext: str = "mp3"
+    image_url: Optional[str] = None
     summary: Optional[str] = None
     status: EpisodeStatus = EpisodeStatus.AVAILABLE
     local_audio_path: Optional[str] = None

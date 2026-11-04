@@ -51,3 +51,14 @@ Especificação detalhada de cada passo em [PLAN.md](PLAN.md#5-passos-de-execuç
 - **Verificação (WSL Ubuntu-26.04):**
   - `ruff check .` e `ruff format --check .` 100% limpos sem avisos.
   - `pytest -v`: **19 testes passando (100% verde)**.
+
+
+### 2026-11-04 — Refinamentos de UI, Terminal Verbose, Filtro por Podcast e Indicador de Sistema Ocupado (⏳) — Gemini CLI
+- **Feito:**
+  - **Terminal Verbose (`logging_config.py`):** Adicionado `setup_verbose_logging()` com `RichHandler`, timestamps e logs detalhados em tempo real para `pod2bullets.worker`, `pod2bullets.downloader`, `pod2bullets.transcriber`, `pod2bullets.feeds` e requisições HTTP.
+  - **Indicador de Sistema Ocupado (`system_status.py` + `GET /system/status`):** Implementado `ActivityTracker` combinando tarefas em memória (instalação de modelos, sincronização RSS, importação OPML) e jobs SQLite (`pending`/`running`), exibindo ampulheta animada (`⏳ Sistema Ocupado: ...`) no topo da interface Web.
+  - **Filtro Exclusivo por Podcast na Tela Principal (`app.py`, `base.html`, `index.html`):** A tela principal (`/`) não mistura mais episódios de todos os podcasts; exibe apenas os episódios do podcast selecionado no **Menu de Podcasts** da barra lateral esquerda (`/?feed_id=<id>`), ordenados do mais novo para o mais antigo (ISO-8601) e sem limite de 100 episódios.
+  - **Gerenciamento Local de Modelos sem Login Hugging Face (`registry.py`, `models.py`):** Instalação e desinstalação direta pela GUI (`/models/manage`) usando `faster_whisper.download_model` (`mobiuslabsgmbh/faster-whisper-large-v3-turbo`) e `onnx_asr.load_model` (`nemo-parakeet-tdt-0.6b-v3`), com tamanho em MB e barra de status.
+- **Verificação (WSL Ubuntu-26.04):**
+  - `ruff check .` e `ruff format --check .`: OK (50 arquivos formatados).
+  - `pytest -v`: **19 passed in 6.33s**.

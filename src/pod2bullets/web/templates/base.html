@@ -7,18 +7,37 @@
     <script src="https://unpkg.com/htmx.org@1.9.12"></script>
     <link rel="stylesheet" href="/static/style.css">
 </head>
-<body>
+<body hx-indicator="#global-htmx-indicator">
     <header class="app-header">
-        <a href="/" class="logo">
-            <span class="icon">🎙️</span>
-            <h1>pod2bullets</h1>
-        </a>
+        <div class="header-left">
+            <a href="/" class="logo">
+                <span class="icon">🎙️</span>
+                <h1>pod2bullets</h1>
+            </a>
+
+            <!-- Indicador de Sistema Ocupado (Ampulheta ao vivo via polling + HTMX request indicator) -->
+            <div id="system-status-container"
+                 hx-get="/system/status"
+                 hx-trigger="load, every 1.5s"
+                 hx-swap="innerHTML">
+                <div class="system-status idle">
+                    <span class="idle-dot">●</span>
+                    <span class="idle-text">Sistema Livre</span>
+                </div>
+            </div>
+
+            <div id="global-htmx-indicator" class="htmx-indicator system-status busy">
+                <span class="hourglass-icon">⏳</span>
+                <span class="busy-text">Processando requisição...</span>
+            </div>
+        </div>
+
         <div class="header-models">
             <label for="active-model">Modelo ASR Ativo:</label>
             <select id="active-model" name="model_id" hx-post="/models/default" hx-swap="none">
                 {% for m in models %}
                 <option value="{{ m.id }}" {% if m.is_default %}selected{% endif %}>
-                    {{ m.name }} {% if m.is_installed %}(Instalado Localmente ✅ - ~{{ m.size_mb }}MB){% else %}(Não Instalado ⚠️ - ~{{ m.size_mb }}MB){% endif %}
+                    {{ m.name }} {% if m.is_installed %}(Instalado ✅ - ~{{ m.size_mb }}MB){% else %}(Não Instalado ⚠️ - ~{{ m.size_mb }}MB){% endif %}
                 </option>
                 {% endfor %}
             </select>
@@ -28,33 +47,53 @@
     </header>
 
     <div class="app-container">
-        <!-- Sidebar: Listas de Subscrições e OPML -->
+        <!-- Sidebar: Menu de Podcasts, Listas e OPML -->
         <aside class="sidebar">
-            <div class="sidebar-header">
-                <h2>Listas de Subscrição</h2>
-            </div>
-            <ul class="nav-lists">
-                <li class="{% if not current_list_id %}active{% endif %}">
-                    <a href="/">Todas as Subscrições</a>
-                </li>
-                {% for l in lists %}
-                <li class="{% if current_list_id == l.id %}active{% endif %}">
-                    <a href="/?list_id={{ l.id }}">{{ l.name }}</a>
-                </li>
-                {% endfor %}
-            </ul>
-
+            <!-- Menu de Podcasts (Cada podcast é uma entrada que lista só os episódios dele) -->
             <div class="sidebar-section">
-                <h3>Nova Lista</h3>
-                <form hx-post="/lists/" hx-swap="none" onsubmit="setTimeout(() => location.reload(), 300)">
-                    <input type="text" name="name" placeholder="Ex: Tecnologia, Notícias" required>
-                    <button type="submit">+ Criar</button>
-                </form>
+                <div class="sidebar-header">
+                    <h2>Menu de Podcasts ({{ all_feeds|length }})</h2>
+                </div>
+                {% if all_feeds %}
+                <ul class="nav-feeds">
+                    {% for f in all_feeds %}
+                    <li class="{% if current_feed_id == f.id %}active{% endif %}">
+                        <a href="/?feed_id={{ f.id }}{% if current_list_id %}&list_id={{ current_list_id }}{% endif %}" title="{{ f.title }}">
+                            {% if f.image_url %}
+                            <img src="{{ f.image_url }}" alt="" class="feed-icon" loading="lazy">
+                            {% else %}
+                            <span class="feed-icon-placeholder">🎙️</span>
+                            {% endif %}
+                            <span class="feed-name">{{ f.title }}</span>
+                        </a>
+                    </li>
+                    {% endfor %}
+                </ul>
+                {% else %}
+                <p class="muted-note">Nenhum podcast assinado ainda. Adicione um feed RSS ou importe um OPML abaixo.</p>
+                {% endif %}
+            </div>
+
+            <!-- Filtro opcional por Lista/Categoria -->
+            <div class="sidebar-section">
+                <div class="sidebar-header">
+                    <h2>Filtrar por Categoria</h2>
+                </div>
+                <ul class="nav-lists">
+                    <li class="{% if not current_list_id %}active{% endif %}">
+                        <a href="/{% if current_feed_id %}?feed_id={{ current_feed_id }}{% endif %}">📁 Todas as Categorias</a>
+                    </li>
+                    {% for l in lists %}
+                    <li class="{% if current_list_id == l.id %}active{% endif %}">
+                        <a href="/?list_id={{ l.id }}">📁 {{ l.name }}</a>
+                    </li>
+                    {% endfor %}
+                </ul>
             </div>
 
             <div class="sidebar-section">
                 <h3>Adicionar Podcast</h3>
-                <form hx-post="/feeds/" hx-swap="none" onsubmit="setTimeout(() => location.reload(), 1000)">
+                <form hx-post="/feeds/" hx-swap="none" onsubmit="setTimeout(() => location.reload(), 1200)">
                     <input type="url" name="rss_url" placeholder="URL do Feed RSS/Atom" required>
                     {% if current_list_id %}
                     <input type="hidden" name="list_id" value="{{ current_list_id }}">
@@ -64,9 +103,25 @@
                 <small class="muted-note">Zero download de áudio ao assinar.</small>
             </div>
 
+            <div class="sidebar-section">
+                <h3>Nova Categoria</h3>
+                <form hx-post="/lists/" hx-swap="none" onsubmit="setTimeout(() => location.reload(), 400)">
+                    <input type="text" name="name" placeholder="Ex: Tecnologia, Notícias" required>
+                    <button type="submit">+ Criar Categoria</button>
+                </form>
+            </div>
+
             <div class="sidebar-section opml-section">
                 <h3>OPML</h3>
-                <a class="btn-opml" href="/lists/opml/export">Exportar OPML</a>
+                <div class="opml-actions">
+                    <a class="btn-opml" href="/lists/opml/export">📤 Exportar OPML</a>
+                    <form hx-post="/lists/opml/import" hx-encoding="multipart/form-data" hx-swap="none" onsubmit="setTimeout(() => location.reload(), 1800)">
+                        <label class="btn-opml upload-label">
+                            📥 Importar OPML
+                            <input type="file" name="file" accept=".opml,.xml" style="display: none;" onchange="this.form.requestSubmit()">
+                        </label>
+                    </form>
+                </div>
             </div>
         </aside>
 
@@ -77,4 +132,3 @@
     </div>
 </body>
 </html>
-

@@ -2,25 +2,91 @@
 
 {% block content %}
 <div class="episodes-container">
-    <div class="content-header">
-        <h2>Episódios</h2>
-        <span class="badge-total">{{ episodes|length }} episódios</span>
+    {% if not selected_feed %}
+    <!-- Estado inicial quando nenhum podcast está selecionado no menu da esquerda -->
+    <div class="select-podcast-prompt">
+        <div class="prompt-icon">👈🎙️</div>
+        <h2>Selecione um Podcast no Menu à Esquerda</h2>
+        <p>
+            Para manter a navegação limpa e rápida, os episódios são exibidos exclusivamente
+            para o podcast selecionado no <strong>Menu de Podcasts</strong> da barra lateral esquerda.
+        </p>
+
+        {% if all_feeds %}
+        <div class="quick-feeds-grid">
+            {% for f in all_feeds %}
+            <a href="/?feed_id={{ f.id }}" class="quick-feed-card">
+                {% if f.image_url %}
+                <img src="{{ f.image_url }}" alt="{{ f.title }}" class="quick-feed-cover" loading="lazy">
+                {% else %}
+                <div class="quick-feed-placeholder">🎙️</div>
+                {% endif %}
+                <div class="quick-feed-info">
+                    <strong>{{ f.title }}</strong>
+                    <span>Ver episódios →</span>
+                </div>
+            </a>
+            {% endfor %}
+        </div>
+        {% else %}
+        <p class="muted-note" style="margin-top: 12px;">
+            Você ainda não possui podcasts cadastrados. Adicione uma URL RSS ou importe um arquivo OPML na barra lateral!
+        </p>
+        {% endif %}
+    </div>
+
+    {% else %}
+    <!-- Cabeçalho do Podcast Selecionado -->
+    <div class="selected-feed-banner">
+        <div class="selected-feed-cover">
+            {% if selected_feed.image_url %}
+            <img src="{{ selected_feed.image_url }}" alt="{{ selected_feed.title }}" class="ep-cover-img">
+            {% else %}
+            <div class="ep-cover-placeholder">🎙️</div>
+            {% endif %}
+        </div>
+        <div class="selected-feed-details">
+            <div class="content-header" style="margin-bottom: 6px;">
+                <h2>{{ selected_feed.title }}</h2>
+                <div style="display: flex; gap: 10px; align-items: center;">
+                    <span class="badge-total">{{ episodes|length }} episódios (mais novos no topo)</span>
+                    <button class="btn-view"
+                            hx-post="/feeds/{{ selected_feed.id }}/sync"
+                            hx-swap="none"
+                            onclick="setTimeout(() => location.reload(), 1200)">
+                        🔄 Atualizar Feed
+                    </button>
+                </div>
+            </div>
+            {% if selected_feed.description %}
+            <p class="ep-summary" style="margin-bottom: 4px;">{{ selected_feed.description[:280] }}{% if selected_feed.description|length > 280 %}...{% endif %}</p>
+            {% endif %}
+            <small class="muted-note">RSS: {{ selected_feed.rss_url }}</small>
+        </div>
     </div>
 
     {% if not episodes %}
     <div class="empty-state">
-        <p>Nenhum episódio cadastrado. Adicione a URL de um podcast na barra lateral para carregar os episódios!</p>
+        <p>Nenhum episódio encontrado para este podcast. Clique em "🔄 Atualizar Feed" acima.</p>
     </div>
     {% endif %}
 
     <div class="episodes-list">
         {% for ep in episodes %}
         <div class="episode-card" id="ep-card-{{ ep.id }}">
+            <div class="ep-cover-col">
+                {% if ep.image_url %}
+                <img src="{{ ep.image_url }}" alt="Capa" class="ep-cover-img" loading="lazy">
+                {% else %}
+                <div class="ep-cover-placeholder">🎙️</div>
+                {% endif %}
+            </div>
+
             <div class="ep-info">
                 <span class="ep-feed">{{ ep.feed_title }}</span>
                 <h3 class="ep-title">{{ ep.title }}</h3>
                 {% if ep.summary %}
-                <p class="ep-summary">{{ ep.summary[:200] }}{% if ep.summary|length > 200 %}...{% endif %}</p>
+                <p class="ep-summary">{{ ep.summary[:220] }}{% if ep.summary|length > 220 %}...{% endif %}</p>
                 {% endif %}
                 <div class="ep-meta">
                     <span>Publicado: {{ ep.published_at or 'Desconhecido' }}</span>
@@ -43,7 +109,7 @@
 
                 {% elif ep.status.value in ['queued_download', 'downloading'] %}
                 <div class="status-box downloading" hx-get="/episodes/card/{{ ep.id }}" hx-trigger="every 1s" hx-target="#ep-card-{{ ep.id }}" hx-swap="outerHTML">
-                    <span class="spinner">⏳</span> Baixando áudio sob demanda ({{ ep.progress or 0 }}%)...
+                    <div><span class="hourglass-icon">⏳</span> Baixando áudio sob demanda ({{ ep.progress or 0 }}%)...</div>
                     <div class="progress-bar-container">
                         <div class="progress-bar-fill" style="width: {{ ep.progress or 15 }}%;"></div>
                     </div>
@@ -51,7 +117,7 @@
 
                 {% elif ep.status.value in ['queued_transcription', 'transcribing'] %}
                 <div class="status-box transcribing" hx-get="/episodes/card/{{ ep.id }}" hx-trigger="every 1s" hx-target="#ep-card-{{ ep.id }}" hx-swap="outerHTML">
-                    <span class="spinner">⚙️</span> Transcrevendo localmente com IA ({{ ep.progress or 0 }}%)...
+                    <div><span class="hourglass-icon">⏳</span> Transcrevendo localmente com IA ({{ ep.progress or 0 }}%)...</div>
                     <div class="progress-bar-container">
                         <div class="progress-bar-fill transcribe" style="width: {{ ep.progress or 25 }}%;"></div>
                     </div>
@@ -61,15 +127,31 @@
                 <div class="completed-actions">
                     <span class="badge-completed">✅ Transcrito</span>
                     {% if ep.proc_time %}
-                    <span class="proc-time-label" style="font-size: 0.75rem; color: #94a3b8;">⏱️ Tempo: {{ ep.proc_time }}s</span>
+                    <span class="proc-time-label" style="font-size: 0.78rem; color: #94a3b8;">⏱️ Tempo: {{ ep.proc_time }}s</span>
                     {% endif %}
                     <a href="/view/{{ ep.id }}" class="btn-view">📖 Ler na Web</a>
-                    <a href="/episodes/{{ ep.id }}/transcripts/{{ models[0].id }}/download" class="btn-txt">💾 Baixar .txt</a>
+                    <a href="/episodes/{{ ep.id }}/transcripts/{{ ep.tx_model_id }}/download" class="btn-txt">💾 Baixar .txt</a>
+                </div>
+
+                {% elif ep.status.value == 'failed' %}
+                <div class="completed-actions">
+                    <span style="color: #ef4444; font-size: 0.8rem; font-weight: 600;" title="{{ ep.error_message }}">
+                        ❌ Falhou: {{ (ep.error_message or 'Erro')[:90] }}
+                    </span>
+                    <form hx-post="/episodes/{{ ep.id }}/download" hx-target="#ep-card-{{ ep.id }}" hx-swap="outerHTML">
+                        <select name="model_id" class="select-inline-model">
+                            {% for m in models %}
+                            <option value="{{ m.id }}" {% if m.is_default %}selected{% endif %}>{{ m.name }}</option>
+                            {% endfor %}
+                        </select>
+                        <button type="submit" class="btn-download">🔄 Tentar Novamente</button>
+                    </form>
                 </div>
                 {% endif %}
             </div>
         </div>
         {% endfor %}
     </div>
+    {% endif %}
 </div>
 {% endblock %}

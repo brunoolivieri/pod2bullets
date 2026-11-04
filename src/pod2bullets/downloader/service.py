@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import logging
 from pathlib import Path
 
 import httpx
@@ -9,6 +10,8 @@ import httpx
 from pod2bullets.config import settings
 from pod2bullets.db.repository import Repository
 from pod2bullets.models import Episode, EpisodeStatus
+
+logger = logging.getLogger("pod2bullets.downloader")
 
 
 class DownloaderService:
@@ -38,14 +41,22 @@ class DownloaderService:
         settings.tmp_dir.mkdir(parents=True, exist_ok=True)
 
         self.repo.update_episode_status(episode.id, EpisodeStatus.DOWNLOADING)
+        logger.info(
+            f"[DOWNLOAD] Iniciando download sob demanda do episódio #{episode.id} "
+            f"'{episode.title}' -> {final_audio_path}"
+        )
+        logger.info(f"[DOWNLOAD] URL de origem: {episode.audio_url}")
 
         hasher = hashlib.sha256()
         total_downloaded = 0
+        last_logged_bucket = -1
 
         try:
             with self.client.stream("GET", episode.audio_url) as resp:
                 resp.raise_for_status()
                 total_size = int(resp.headers.get("content-length", 0))
+                if total_size > 0:
+                    logger.info(f"[DOWNLOAD] Tamanho esperado: {total_size / (1024 * 1024):.2f} MB")
 
                 with open(temp_audio_path, "wb") as f:
                     for chunk in resp.iter_bytes(chunk_size=65536):
@@ -54,13 +65,26 @@ class DownloaderService:
                         f.write(chunk)
                         hasher.update(chunk)
                         total_downloaded += len(chunk)
-                        if progress_callback and total_size > 0:
+                        if total_size > 0:
                             percent = round((total_downloaded / total_size) * 100, 1)
-                            progress_callback(percent)
+                            if progress_callback:
+                                progress_callback(percent)
+                            bucket = int(percent // 10)
+                            if bucket > last_logged_bucket:
+                                last_logged_bucket = bucket
+                                logger.info(
+                                    f"[DOWNLOAD] Episódio #{episode.id}: {percent:.1f}% "
+                                    f"({total_downloaded / (1024 * 1024):.1f} / "
+                                    f"{total_size / (1024 * 1024):.1f} MB)"
+                                )
 
             # Move atomically to final location
             temp_audio_path.replace(final_audio_path)
             sha256_hash = hasher.hexdigest()
+            logger.info(
+                f"[DOWNLOAD] Concluído episódio #{episode.id} "
+                f"({total_downloaded / (1024 * 1024):.2f} MB, SHA256={sha256_hash[:12]}...)"
+            )
 
             # Save metadata alongside the audio
             meta_path = episode_dir / "episode.json"
@@ -89,6 +113,10 @@ class DownloaderService:
             return final_audio_path
 
         except Exception as e:
+            logger.error(
+                f"[DOWNLOAD] Erro ao baixar episódio #{episode.id} '{episode.title}': {e}",
+                exc_info=True,
+            )
             if temp_audio_path.exists():
                 temp_audio_path.unlink()
             self.repo.update_episode_status(

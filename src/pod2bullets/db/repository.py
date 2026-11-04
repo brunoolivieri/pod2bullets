@@ -134,18 +134,21 @@ class Repository:
         slug: str,
         audio_url: str,
         audio_ext: str = "mp3",
+        image_url: Optional[str] = None,
         published_at: Optional[str] = None,
         duration_seconds: Optional[int] = None,
         summary: Optional[str] = None,
     ) -> Episode:
         cur = self.conn.cursor()
         cur.execute(
-            """INSERT INTO episodes (feed_id, guid, title, slug, audio_url, audio_ext, published_at, duration_seconds, summary, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+            """INSERT INTO episodes (feed_id, guid, title, slug, audio_url, audio_ext, image_url, published_at, duration_seconds, summary, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
                ON CONFLICT(feed_id, guid) DO UPDATE SET
                    title = excluded.title,
                    slug = excluded.slug,
                    audio_url = excluded.audio_url,
+                   image_url = COALESCE(excluded.image_url, episodes.image_url),
+                   published_at = COALESCE(excluded.published_at, episodes.published_at),
                    summary = excluded.summary
                RETURNING *""",
             (
@@ -155,6 +158,7 @@ class Repository:
                 slug,
                 audio_url,
                 audio_ext,
+                image_url,
                 published_at,
                 duration_seconds,
                 summary,
@@ -175,7 +179,7 @@ class Repository:
         self,
         feed_id: Optional[int] = None,
         status: Optional[EpisodeStatus] = None,
-        limit: int = 100,
+        limit: Optional[int] = None,
         offset: int = 0,
     ) -> list[Episode]:
         cur = self.conn.cursor()
@@ -187,8 +191,10 @@ class Repository:
         if status:
             query += " AND status = ?"
             params.append(status.value)
-        query += " ORDER BY published_at DESC LIMIT ? OFFSET ?"
-        params.extend([limit, offset])
+        query += " ORDER BY published_at DESC, id DESC"
+        if limit is not None:
+            query += " LIMIT ? OFFSET ?"
+            params.extend([limit, offset])
         cur.execute(query, tuple(params))
         return [Episode(**dict(r)) for r in cur.fetchall()]
 

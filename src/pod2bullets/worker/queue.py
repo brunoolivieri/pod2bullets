@@ -28,15 +28,17 @@ class BackgroundWorker:
 
     def start(self):
         self._running = True
-        self._thread = threading.Thread(target=self._run_loop, daemon=True)
+        self._thread = threading.Thread(
+            target=self._run_loop, name="pod2bullets-worker", daemon=True
+        )
         self._thread.start()
-        logger.info("BackgroundWorker iniciado.")
+        logger.info("[WORKER] BackgroundWorker iniciado e monitorando fila de jobs.")
 
     def stop(self):
         self._running = False
         if self._thread and self._thread.is_alive():
             self._thread.join(timeout=3.0)
-        logger.info("BackgroundWorker parado.")
+        logger.info("[WORKER] BackgroundWorker parado.")
 
     def _run_loop(self):
         while self._running:
@@ -45,7 +47,7 @@ class BackgroundWorker:
                 if not processed:
                     time.sleep(1.0)
             except Exception as e:
-                logger.error(f"Erro no loop do worker: {e}", exc_info=True)
+                logger.error(f"[WORKER] Erro inesperado no loop do worker: {e}", exc_info=True)
                 time.sleep(2.0)
 
     def process_next_job(self) -> bool:
@@ -64,13 +66,19 @@ class BackgroundWorker:
             if not episode:
                 raise ValueError(f"Episódio {job.episode_id} não encontrado")
 
-            repo.get_feed(episode.feed_id)
+            feed = repo.get_feed(episode.feed_id)
             model_id = job.model_id or settings.default_model_id
+            logger.info(
+                f"[WORKER] === Iniciando Job #{job.id} ({job.job_type.value}) | "
+                f"Podcast: '{feed.title if feed else '?'}' | "
+                f"Episódio #{episode.id}: '{episode.title}' | Modelo: {model_id} ==="
+            )
 
             # 1. Download phase (if audio not downloaded yet)
             audio_path: Path
             if episode.local_audio_path and Path(episode.local_audio_path).exists():
                 audio_path = Path(episode.local_audio_path)
+                logger.info(f"[WORKER] Áudio já presente em disco: {audio_path}")
             else:
                 downloader = DownloaderService(repo)
 
@@ -85,6 +93,10 @@ class BackgroundWorker:
                 )
 
             # 2. Automatic transcription phase
+            logger.info(
+                f"[WORKER] Iniciando transcrição automática do episódio #{episode.id} "
+                f"com modelo '{model_id}'..."
+            )
             repo.update_episode_status(episode.id, EpisodeStatus.TRANSCRIBING)
             repo.update_job_status(job.id, JobStatus.RUNNING, progress_percent=50.0)
 
@@ -148,9 +160,14 @@ class BackgroundWorker:
 
             repo.update_episode_status(episode.id, EpisodeStatus.COMPLETED)
             repo.update_job_status(job.id, JobStatus.COMPLETED, progress_percent=100.0)
+            logger.info(
+                f"[WORKER] === Job #{job.id} CONCLUÍDO! Episódio #{episode.id} transcrito em "
+                f"{result.duration_proc_seconds}s ({len(result.plain_text.split())} palavras) "
+                f"-> {txt_path} ==="
+            )
 
         except Exception as e:
-            logger.error(f"Falha ao executar job {job.id}: {e}", exc_info=True)
+            logger.error(f"[WORKER] Falha ao executar job #{job.id}: {e}", exc_info=True)
             repo.update_job_status(job.id, JobStatus.FAILED, error_message=str(e))
             repo.update_episode_status(job.episode_id, EpisodeStatus.FAILED, error_message=str(e))
         finally:
