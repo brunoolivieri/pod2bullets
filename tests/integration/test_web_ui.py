@@ -340,3 +340,144 @@ def test_queue_visualization_and_cancellation(tmp_path: Path):
             assert len(db_repo.list_queue_jobs()) == 0
 
     conn.close()
+
+
+def test_summaries_browser_and_multi_llm_coexistence(tmp_path: Path):
+    db_file = tmp_path / "summaries_ui_test.sqlite"
+    settings.db_path = db_file
+    settings.logs_dir = tmp_path / "logs"
+    init_db(db_file)
+
+    conn = get_db_connection(db_file)
+    repo = Repository(conn)
+    repo.create_list("Geral", "geral")
+    feed = repo.create_feed("Podcast Multi LLM", "pod-multi-llm", "http://example.com/rss")
+    ep = repo.upsert_episode(
+        feed_id=feed.id,
+        guid="ep-multi",
+        title="Episódio Multi Resumo",
+        slug="episodio-multi-resumo",
+        audio_url="http://example.com/multi.mp3",
+    )
+    repo.update_episode_status(ep.id, EpisodeStatus.COMPLETED)
+
+    # Base transcript
+    tx_file = tmp_path / "ep_multi_transcript.txt"
+    tx_file.write_text("Transcrição completa gerada por Whisper.", encoding="utf-8")
+    tx = repo.record_transcript(
+        episode_id=ep.id,
+        model_id="whisper-large-v3-turbo",
+        engine_name="faster-whisper",
+        plain_text_path=str(tx_file),
+        char_count=len(tx_file.read_text()),
+        word_count=5,
+        duration_proc_seconds=12.5,
+    )
+
+    # Summary 1: Gemini
+    sum1_file = tmp_path / "ep_multi_summary_gemini.txt"
+    sum1_file.write_text("• Ponto 1 do Gemini\n• Ponto 2 do Gemini", encoding="utf-8")
+    s1 = repo.record_summary(
+        episode_id=ep.id,
+        transcript_id=tx.id,
+        provider="gemini",
+        model_name="gemini-2.5-flash",
+        prompt_used="Resuma os principais pontos com marcadores...",
+        summary_text=sum1_file.read_text(encoding="utf-8"),
+        summary_path=str(sum1_file),
+        duration_proc_seconds=3.2,
+    )
+
+    # Summary 2: Claude (coexisting with Gemini for the same episode)
+    sum2_file = tmp_path / "ep_multi_summary_claude.txt"
+    sum2_file.write_text(
+        "• Análise detalhada pelo Claude\n• Segundo bullet do Claude", encoding="utf-8"
+    )
+    s2 = repo.record_summary(
+        episode_id=ep.id,
+        transcript_id=tx.id,
+        provider="claude",
+        model_name="claude-sonnet-4-6",
+        prompt_used="Faça uma síntese analítica dos argumentos...",
+        summary_text=sum2_file.read_text(encoding="utf-8"),
+        summary_path=str(sum2_file),
+        duration_proc_seconds=4.8,
+    )
+
+    # Verify both summaries exist in DB
+    summaries = repo.list_episode_summaries(ep.id)
+    assert len(summaries) == 2
+    assert {s.provider for s in summaries} == {"gemini", "claude"}
+
+    app = create_app()
+    with patch.object(BackgroundWorker, "start"), patch.object(BackgroundWorker, "stop"):
+        with TestClient(app) as client:
+            # 1. Main navigation /summaries
+            resp = client.get("/summaries")
+            assert resp.status_code == 200
+            assert "Navegador de Resumos" in resp.text
+            assert "gemini-2.5-flash" in resp.text
+            assert "claude-sonnet-4-6" in resp.text
+            assert "whisper-large-v3-turbo" in resp.text
+            assert "Episódio Multi Resumo" in resp.text
+
+            # 2. HTMX filter by provider
+            resp_gemini = client.get("/summaries/cards?provider=gemini")
+            assert resp_gemini.status_code == 200
+            assert "gemini-2.5-flash" in resp_gemini.text
+            assert "claude-sonnet-4-6" not in resp_gemini.text
+
+            resp_claude = client.get("/summaries/cards?provider=claude")
+            assert resp_claude.status_code == 200
+            assert "claude-sonnet-4-6" in resp_claude.text
+            assert "gemini-2.5-flash" not in resp_claude.text
+
+            # 3. Filter by feed_id
+            resp_feed = client.get(f"/summaries/cards?feed_id={feed.id}")
+            assert resp_feed.status_code == 200
+            assert "gemini-2.5-flash" in resp_feed.text
+            assert "claude-sonnet-4-6" in resp_feed.text
+
+            # Filter with non-existent feed
+            resp_empty = client.get("/summaries/cards?feed_id=99999")
+            assert resp_empty.status_code == 200
+            assert "Nenhum resumo encontrado" in resp_empty.text
+
+            # 4. Episode card on index shows both summaries
+            resp_index = client.get(f"/?feed_id={feed.id}")
+            assert resp_index.status_code == 200
+            assert "📑 Resumo (gemini)" in resp_index.text
+            assert "📑 Resumo (claude)" in resp_index.text
+
+            # Card partial endpoint also shows both summaries
+            resp_card = client.get(f"/episodes/card/{ep.id}")
+            assert resp_card.status_code == 200
+            assert "📑 Resumo (gemini)" in resp_card.text
+            assert "📑 Resumo (claude)" in resp_card.text
+
+            # 5. View episode page shows both summaries
+            resp_view = client.get(f"/view/{ep.id}")
+            assert resp_view.status_code == 200
+            assert f"summary-{s1.id}" in resp_view.text
+            assert f"summary-{s2.id}" in resp_view.text
+            assert "gemini-2.5-flash" in resp_view.text
+            assert "claude-sonnet-4-6" in resp_view.text
+
+            # 6. Delete one summary (s1 - Gemini)
+            del_resp = client.post(f"/summaries/{s1.id}/delete")
+            assert del_resp.status_code == 200
+            assert not sum1_file.exists()  # Disk file deleted
+            assert sum2_file.exists()  # Claude disk file preserved
+
+            # DB check: only s2 remains
+            remaining = repo.list_episode_summaries(ep.id)
+            assert len(remaining) == 1
+            assert remaining[0].id == s2.id
+
+            # Central page now only has s2
+            resp_after_del = client.get("/summaries")
+            assert resp_after_del.status_code == 200
+            assert "claude-sonnet-4-6" in resp_after_del.text
+            assert "gemini-2.5-flash" not in resp_after_del.text
+
+    conn.close()

@@ -124,4 +124,24 @@ Especificação detalhada de cada passo em [PLAN.md](PLAN.md#5-passos-de-execuç
   - `pytest -v`: **23 passed**.
 
 
+### 2026-11-04 — Central/Navegador de Resumos (`/summaries`) com Filtros e Coexistência de Múltiplos Resumos por Episódio — Gemini CLI
+- **Feito:**
+  - **Nova tela dedicada `/summaries` (`routes/summaries.py`, `templates/summaries.html`, `templates/base.html`):**
+    - Adicionado botão de navegação `📑 Resumos` no cabeçalho superior.
+    - Filtro reativo (HTMX) por podcast (`feed_id`) e por provedor LLM (`gemini`, `claude`, `chatgpt`, `deepseek`, `qwen`).
+    - Contador total dinâmico de resumos e cards completos com capa do podcast, título do episódio clicável, badge colorido por provedor LLM, modelo específico, modelo ASR local base utilizado (`🎙️ Base: whisper-large-v3-turbo`), data/hora e tempo de processamento.
+    - Transparência total de como cada resumo foi gerado: `<details>` retrátil exibindo o prompt exato utilizado.
+    - Ações diretas por resumo: `📖 Ver Episódio`, `💾 Baixar .TXT`, `📋 Copiar Resumo` e `🗑️ Excluir` individual (`POST /summaries/{id}/delete` com limpeza atômica no SQLite e deleção do arquivo físico no disco).
+  - **Coexistência de Múltiplos Resumos para o Mesmo Episódio (`repository.py`, `llm/service.py`, `routes/episodes.py`, `templates/index.html`, `templates/view_transcript.html`):**
+    - Se um mesmo episódio possuir resumos gerados por LLMs diferentes (ex.: Gemini e Claude), todos coexistem simultaneamente sem sobrescrita.
+    - O repositório armazena e recupera todos os resumos por episódio (`list_episode_summaries`), salvando arquivos `.txt` individuais sem colisão (adicionando timestamp se mesmo provedor/modelo for re-executado).
+    - Os cards de episódio na tela principal (`/`) e na tela de leitura (`/view/{id}`) exibem botões e badges para cada um dos resumos existentes (`📑 Resumo (gemini)`, `📑 Resumo (claude)` + `💾 .TXT`), permitindo comparar lado a lado o output de cada LLM.
+  - **Testes Automatizados de Integração (`tests/integration/test_web_ui.py`):**
+    - Adicionado `test_summaries_browser_and_multi_llm_coexistence` cobrindo renderização de `/summaries`, filtros por provedor e podcast, coexistência de múltiplos resumos na home e em `/view/{id}`, e exclusão atômica de resumos.
+- **Verificação (WSL Ubuntu-26.04):**
+  - `ruff check .` e `ruff format --check .`: 100% limpos.
+  - `pytest -v`: **24 passed in 16.03s** (100% verde).
+
+
+
 

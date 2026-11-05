@@ -22,7 +22,7 @@ from pod2bullets.logging_config import (
 from pod2bullets.system_status import get_system_status
 from pod2bullets.transcriber.cuda_env import ensure_cuda_libraries_loaded
 from pod2bullets.transcriber.registry import ModelRegistry
-from pod2bullets.web.routes import episodes, feeds, lists, llm, logs, models, queue
+from pod2bullets.web.routes import episodes, feeds, lists, llm, logs, models, queue, summaries
 from pod2bullets.worker.queue import BackgroundWorker
 
 setup_verbose_logging()
@@ -79,6 +79,7 @@ def create_app() -> FastAPI:
     static_dir = Path(__file__).resolve().parent / "static"
     static_dir.mkdir(parents=True, exist_ok=True)
     app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
+    app.state.templates = templates
 
     # API Routes
     app.include_router(lists.router)
@@ -88,6 +89,7 @@ def create_app() -> FastAPI:
     app.include_router(llm.router)
     app.include_router(logs.router)
     app.include_router(queue.router)
+    app.include_router(summaries.router)
 
     @app.get("/system/status", response_class=HTMLResponse)
     def system_status_badge():
@@ -135,6 +137,7 @@ def create_app() -> FastAPI:
                 summaries = repo.list_episode_summaries(ep.id)
                 d["has_transcript"] = len(transcripts) > 0
                 d["has_summary"] = len(summaries) > 0
+                d["summaries"] = [s.model_dump() for s in summaries]
                 d["latest_summary_id"] = summaries[0].id if summaries else None
                 d["proc_time"] = (
                     transcripts[0].duration_proc_seconds

@@ -145,19 +145,35 @@
         <div id="llm-summary-output">
             {% if summaries %}
                 {% for s in summaries %}
-                <div class="summary-result-card" style="background: #0f172a; border: 1px solid #3b82f6; border-radius: 8px; padding: 20px; margin-top: 16px;">
+                <div class="summary-result-card" id="summary-{{ s.id }}" style="background: #0f172a; border: 1px solid #3b82f6; border-radius: 8px; padding: 20px; margin-top: 16px;">
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 10px;">
                         <div>
                             <strong style="color: #60a5fa; font-size: 1.05rem;">✨ Resumo ({{ s.provider|upper }} — {{ s.model_name }})</strong>
                             <span style="font-size: 0.8rem; color: #94a3b8; margin-left: 10px;">⏱️ {{ s.duration_proc_seconds or '?' }}s</span>
+                            {% if s.created_at %}<span style="font-size: 0.78rem; color: #64748b; margin-left: 8px;">📅 {{ s.created_at }}</span>{% endif %}
                         </div>
                         <div style="display: flex; gap: 8px;">
                             <button class="btn-copy" onclick="navigator.clipboard.writeText(document.getElementById('summary-text-{{ s.id }}').innerText); alert('Resumo copiado!');">
                                 📋 Copiar Resumo
                             </button>
                             <a href="/llm/summaries/{{ s.id }}/download" class="btn-txt">💾 Baixar Resumo (.TXT)</a>
+                            <button type="button"
+                                    class="btn-delete"
+                                    style="padding: 4px 10px; font-size: 0.76rem;"
+                                    hx-post="/summaries/{{ s.id }}/delete"
+                                    hx-confirm="Deseja excluir este resumo gerado por {{ s.provider|upper }}?"
+                                    hx-target="#summary-{{ s.id }}"
+                                    hx-swap="outerHTML">
+                                🗑️ Excluir
+                            </button>
                         </div>
                     </div>
+                    {% if s.prompt_used %}
+                    <details style="margin-bottom: 10px; font-size: 0.78rem; background: rgba(30, 41, 59, 0.6); border: 1px solid #334155; border-radius: 5px; padding: 5px 8px;">
+                        <summary style="cursor: pointer; color: #94a3b8; font-weight: 600;">🔍 Ver prompt utilizado neste resumo</summary>
+                        <pre style="margin-top: 6px; white-space: pre-wrap; color: #cbd5e1; font-size: 0.76rem; font-family: monospace;">{{ s.prompt_used }}</pre>
+                    </details>
+                    {% endif %}
                     <pre id="summary-text-{{ s.id }}" class="plain-text-display" style="margin-top: 8px;">{{ s.summary_text }}</pre>
                 </div>
                 {% endfor %}

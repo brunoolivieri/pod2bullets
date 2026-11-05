@@ -874,10 +874,10 @@ class LLMService:
             )
             elapsed = round(time.perf_counter() - t0, 2)
 
-            summary_filename = (
-                f"{slugify(ep.title)}__resumo_{chosen_provider}_{slugify(used_model)}.txt"
-            )
-            summary_path = tx_path.parent / summary_filename
+            base_filename = f"{slugify(ep.title)}__resumo_{chosen_provider}_{slugify(used_model)}"
+            summary_path = tx_path.parent / f"{base_filename}.txt"
+            if summary_path.exists():
+                summary_path = tx_path.parent / f"{base_filename}_{int(time.time())}.txt"
             summary_path.write_text(summary_text, encoding="utf-8")
 
             record = self.repo.record_summary(

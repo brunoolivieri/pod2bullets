@@ -1,6 +1,7 @@
 """Repository layer for database CRUD operations."""
 
 import sqlite3
+from pathlib import Path
 from typing import Optional
 
 from pod2bullets.models import (
@@ -337,6 +338,55 @@ class Repository:
             (episode_id,),
         )
         return [TranscriptSummary(**dict(r)) for r in cur.fetchall()]
+
+    def list_all_summaries(
+        self,
+        feed_id: Optional[int] = None,
+        provider: Optional[str] = None,
+    ) -> list[dict]:
+        """List all summaries across podcasts/episodes with rich metadata for navigation."""
+        query = """
+            SELECT
+                s.id, s.episode_id, s.transcript_id, s.provider, s.model_name,
+                s.prompt_used, s.summary_text, s.summary_path, s.duration_proc_seconds,
+                s.created_at,
+                e.title AS episode_title, e.slug AS episode_slug,
+                e.published_at AS episode_published_at, e.image_url AS episode_image_url,
+                e.feed_id,
+                f.title AS feed_title, f.slug AS feed_slug, f.image_url AS feed_image_url,
+                t.model_id AS asr_model_id, t.engine_name AS asr_engine_name
+            FROM summaries s
+            JOIN episodes e ON e.id = s.episode_id
+            JOIN feeds f ON f.id = e.feed_id
+            LEFT JOIN transcripts t ON t.id = s.transcript_id
+            WHERE 1=1
+        """
+        params: list = []
+        if feed_id:
+            query += " AND e.feed_id = ?"
+            params.append(feed_id)
+        if provider:
+            query += " AND s.provider = ?"
+            params.append(provider)
+
+        query += " ORDER BY s.id DESC"
+        cur = self.conn.cursor()
+        cur.execute(query, params)
+        return [dict(r) for r in cur.fetchall()]
+
+    def delete_summary(self, summary_id: int) -> bool:
+        """Delete a summary from DB and remove its file on disk if present."""
+        summary = self.get_summary(summary_id)
+        if not summary:
+            return False
+        if summary.summary_path:
+            p = Path(summary.summary_path)
+            if p.exists():
+                p.unlink(missing_ok=True)
+        cur = self.conn.cursor()
+        cur.execute("DELETE FROM summaries WHERE id = ?", (summary_id,))
+        self.conn.commit()
+        return True
 
     def get_summary(self, summary_id: int) -> Optional[TranscriptSummary]:
         cur = self.conn.cursor()

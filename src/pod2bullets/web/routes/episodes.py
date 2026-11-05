@@ -81,7 +81,6 @@ def get_episode_card(episode_id: int):
         else (summaries[0].duration_proc_seconds if summaries else None)
     )
     tx_model_id = transcripts[0].model_id if transcripts else settings.default_model_id
-    latest_summary = summaries[0] if summaries else None
 
     active_job = repo.get_active_job_for_episode(episode_id)
     q_pos = repo.get_queue_position(active_job.id) if active_job else 1
@@ -198,11 +197,17 @@ def get_episode_card(episode_id: int):
                 <a href="/episodes/{ep.id}/transcripts/{tx_model_id}/download" class="btn-txt">💾 Exportar .TXT</a>
             """
         sum_buttons = ""
-        if latest_summary:
-            sum_buttons = f"""
-                <a href="/view/{ep.id}#resumo-ia" class="btn-copy">📑 Ler Resumo ({latest_summary.model_name})</a>
-                <a href="/llm/summaries/{latest_summary.id}/download" class="btn-txt" style="background: #0d9488;">💾 Baixar Resumo (.TXT)</a>
-            """
+        if summaries:
+            for s in summaries:
+                prov_label = LLM_PROVIDERS.get(s.provider, {}).get("name", s.provider.upper())
+                sum_buttons += f"""
+                    <a href="/view/{ep.id}#summary-{s.id}" class="btn-copy" style="font-size: 0.76rem;" title="Resumo gerado por {prov_label} ({s.model_name})">
+                        📑 Resumo ({s.provider})
+                    </a>
+                    <a href="/llm/summaries/{s.id}/download" class="btn-txt" style="background: #0d9488; font-size: 0.74rem; padding: 4px 8px;" title="Baixar resumo de {s.provider} em .TXT">
+                        💾 .TXT
+                    </a>
+                """
         elif transcripts:
             sum_buttons = f"""
                 <a href="/view/{ep.id}#resumo-ia" class="btn-copy">✨ Resumir Texto (LLM)</a>

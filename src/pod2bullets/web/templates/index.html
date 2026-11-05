@@ -185,8 +185,17 @@
                         <a href="/view/{{ ep.id }}" class="btn-view">📖 Ler na Íntegra</a>
                         <a href="/episodes/{{ ep.id }}/transcripts/{{ ep.tx_model_id }}/download" class="btn-txt">💾 Exportar .TXT</a>
                         {% endif %}
-                        {% if ep.has_summary %}
-                        <a href="/view/{{ ep.id }}#resumo-ia" class="btn-copy">📑 Ler Resumo Online</a>
+                        {% if ep.summaries %}
+                        {% for s in ep.summaries %}
+                        <a href="/view/{{ ep.id }}#summary-{{ s.id }}" class="btn-copy" style="font-size: 0.76rem;" title="Resumo gerado por {{ s.provider|upper }} ({{ s.model_name }})">
+                            📑 Resumo ({{ s.provider }})
+                        </a>
+                        <a href="/llm/summaries/{{ s.id }}/download" class="btn-txt" style="background: #0d9488; font-size: 0.74rem; padding: 4px 8px;" title="Baixar resumo de {{ s.provider }} em .TXT">
+                            💾 .TXT
+                        </a>
+                        {% endfor %}
+                        {% elif ep.has_summary %}
+                        <a href="/view/{{ ep.id }}#resumo-ia" class="btn-copy">📑 Ler Resumo</a>
                         <a href="/llm/summaries/{{ ep.latest_summary_id }}/download" class="btn-txt" style="background: #0d9488;">💾 Baixar Resumo (.TXT)</a>
                         {% elif ep.has_transcript %}
                         <a href="/view/{{ ep.id }}#resumo-ia" class="btn-copy">✨ Resumir Texto (LLM)</a>

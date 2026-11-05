@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="models-container" style="max-width: 1100px;">
+    <!-- Cabeçalho -->
+    <div class="content-header" style="margin-bottom: 16px;">
+        <div>
+            <h2>📑 Navegador de Resumos de Podcasts</h2>
+            <p style="color: var(--text-muted); font-size: 0.9rem; margin-top: 4px;">
+                Navegue por todos os resumos gerados pelas LLMs, compare resumos feitos por diferentes modelos no mesmo episódio e confira como cada um foi produzido.
+            </p>
+        </div>
+        <span class="badge-total" id="summaries-counter">{{ summaries_count }} resumo(s) no total</span>
+    </div>
+
+    <!-- Barra de Filtros -->
+    <div class="filters-bar" style="background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 14px 18px; margin-bottom: 20px; display: flex; gap: 14px; align-items: center; justify-content: space-between; flex-wrap: wrap;">
+        <div style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
+            <label style="font-size: 0.85rem; color: #cbd5e1; font-weight: 600;">Filtrar:</label>
+
+            <!-- Filtro por Podcast -->
+            <select id="filter-feed"
+                    name="feed_id"
+                    hx-get="/summaries/cards"
+                    hx-include="#filter-provider"
+                    hx-target="#summaries-list-container"
+                    hx-swap="innerHTML"
+                    class="select-inline-model"
+                    style="margin-bottom: 0; padding: 6px 10px; font-size: 0.82rem; background: #0f172a; border-color: #334155; color: #f8fafc;">
+                <option value="">🎙️ Todos os Podcasts</option>
+                {% for f in all_feeds %}
+                <option value="{{ f.id }}" {% if selected_feed_id == f.id %}selected{% endif %}>
+                    {{ f.title }}
+                </option>
+                {% endfor %}
+            </select>
+
+            <!-- Filtro por Provedor LLM -->
+            <select id="filter-provider"
+                    name="provider"
+                    hx-get="/summaries/cards"
+                    hx-include="#filter-feed"
+                    hx-target="#summaries-list-container"
+                    hx-swap="innerHTML"
+                    class="select-inline-model"
+                    style="margin-bottom: 0; padding: 6px 10px; font-size: 0.82rem; background: #0f172a; border-color: #334155; color: #f8fafc;">
+                <option value="all" {% if selected_provider == 'all' %}selected{% endif %}>🤖 Todas as LLMs</option>
+                {% for pid, pinfo in llm_providers.items() %}
+                <option value="{{ pid }}" {% if selected_provider == pid %}selected{% endif %}>
+                    {{ pinfo.name }}
+                </option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div style="display: flex; gap: 8px;">
+            <a href="/llm/settings" class="btn-manage-models" style="font-size: 0.8rem;">⚙️ Configurar APIs & Prompt</a>
+            <a href="/" class="btn-view" style="font-size: 0.8rem; text-decoration: none;">🎙️ Ir para Episódios</a>
+        </div>
+    </div>
+
+    <!-- Lista de Cards de Resumos -->
+    <div id="summaries-list-container">
+        {{ summaries_list_html|safe }}
+    </div>
+</div>
+{% endblock %}
