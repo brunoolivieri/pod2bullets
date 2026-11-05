@@ -72,9 +72,8 @@ def _render_summaries_list_html(
             else '<div class="ep-cover-placeholder" style="width: 56px; height: 56px; border-radius: 6px; display: flex; align-items: center; justify-content: center; background: #0f172a; font-size: 1.5rem;">🎙️</div>'
         )
 
-        prompt_block = ""
-        if prompt_used:
-            prompt_block = f"""
+        prompt_block = (
+            f"""
                 <!-- Detalhes do Prompt Utilizado (Transparência de como foi gerado) -->
                 <details style="margin-bottom: 12px; font-size: 0.8rem; background: #0f172a; border: 1px solid #334155; border-radius: 6px; padding: 6px 10px;">
                     <summary style="cursor: pointer; color: #94a3b8; font-weight: 600; outline: none;">
@@ -83,6 +82,9 @@ def _render_summaries_list_html(
                     <pre style="margin-top: 8px; white-space: pre-wrap; color: #cbd5e1; font-family: monospace; font-size: 0.78rem; line-height: 1.4;">{prompt_used}</pre>
                 </details>
             """
+            if prompt_used
+            else ""
+        )
 
         cards.append(
             f"""
@@ -94,7 +96,7 @@ def _render_summaries_list_html(
                         <div>
                             <span style="font-size: 0.8rem; color: #94a3b8; font-weight: 600;">{feed_title}</span>
                             <h3 style="font-size: 1.05rem; margin: 2px 0 4px 0; color: #f8fafc;">
-                                <a href="/view/{ep_id}#summary-{sid}" style="color: #f8fafc; text-decoration: none;">
+                                <a href="/view/{ep_id}#summary-{sid}" style="color: #f8fafc; text-decoration: none;" hover="text-decoration: underline;">
                                     {ep_title}
                                 </a>
                             </h3>
