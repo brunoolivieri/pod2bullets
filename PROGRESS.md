@@ -8,11 +8,11 @@ Especificação detalhada de cada passo em [PLAN.md](PLAN.md#5-passos-de-execuç
 
 ## Checkpoint de Handoff Ativo
 
-- **Estado atual:** `plano concluído` (todos os passos implementados e testados com sucesso)
-- **Passo ativo / próximo da fila:** nenhum (todas as fases F0 a F6 concluídas)
-- **Último agente a atualizar:** Gemini CLI (Gemini Flash)
-- **Data:** 2026-11-04
-- **Arquivos:** todos os módulos e suíte de testes 100% verde no WSL `Ubuntu-26.04`.
+- **Estado atual:** `documentação e revisão concluídas` (pronto para commit e push)
+- **Passo ativo / próximo da fila:** nenhum (todas as fases e documentação entregues)
+- **Último agente a atualizar:** Gemini CLI (Antigravity)
+- **Data:** 2026-11-05
+- **Arquivos:** `docs/AI_GUIDE.md`, `docs/ARCHITECTURE.md`, `README.md`, `src/pod2bullets/web/routes/summaries.py`, `src/pod2bullets/db/repository.py`, `src/pod2bullets/web/routes/episodes.py`. Suíte de 24 testes 100% verde no WSL `Ubuntu-26.04`.
 
 ---
 
@@ -141,6 +141,24 @@ Especificação detalhada de cada passo em [PLAN.md](PLAN.md#5-passos-de-execuç
 - **Verificação (WSL Ubuntu-26.04):**
   - `ruff check .` e `ruff format --check .`: 100% limpos.
   - `pytest -v`: **24 passed in 16.03s** (100% verde).
+
+
+### 2026-11-05 — Revisão Geral, Saneamento de Código e Documentação em 3 Camadas (IA, Humanos e Usuários) — Gemini CLI
+- **Feito:**
+  - **Saneamento e Correção de Bugs:**
+    - Corrigido erro de sintaxe em `src/pod2bullets/web/routes/summaries.py` onde tags de template Jinja2 foram acidentalmente mescladas em uma f-string Python, restaurando a interpolação via `prompt_block`.
+    - Limpeza de import duplicado de `Path` em `src/pod2bullets/db/repository.py`.
+    - Remoção de variável não utilizada `latest_summary` em `src/pod2bullets/web/routes/episodes.py`.
+  - **Documentação em 3 Camadas:**
+    - **Para Agentes de IA (`docs/AI_GUIDE.md`):** Mapa detalhado do código-fonte, modelo de concorrência SQLite WAL + `BackgroundWorker`, regras de ouro de negócio (zero download automático de áudio, áudio efêmero apagado pós-processamento, ASR 100% local), padrões de endpoints HTMX e cookbook prático para extensão de modelos ASR e provedores LLM.
+    - **Para Humanos e Arquitetos (`docs/ARCHITECTURE.md`):** Arquitetura completa do sistema com diagramas Mermaid (Componentes, Sequência de Processamento ponta a ponta, ERD do banco SQLite), detalhamento dos subsistemas (PyAV 16kHz, CUDA 12 Preload, Throttling da fila, Multi-LLM resiliente, Logs duplos) e Registro de Decisões Arquiteturais (ADRs).
+    - **Para o Usuário Final (`README.md`):** Manual completo e moderno com badges, guia visual passo a passo (instalação no WSL Ubuntu 26.04 via `scripts/setup_wsl.sh`, importação OPML, seleção conjunta de modelo ASR + LLM, navegação por resumos, acompanhamento de fila e log viewer ao vivo) e referência da CLI.
+  - **Coordenação Multiagente (`AGENTS.md`):**
+    - Atualizada tabela de arquivos de coordenação referenciando os novos documentos de arquitetura e guia de IA.
+- **Verificação (WSL Ubuntu-26.04):**
+  - `ruff check .` e `ruff format --check .`: 100% limpos sem pendências.
+  - `pytest -v`: **24 passed in 14.58s** (100% verde).
+- **Próximo passo:** Commit das alterações e push para o repositório remoto (`origin/main`).
 
 
 

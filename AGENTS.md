@@ -15,6 +15,8 @@ Qualquer agente deve conseguir assumir **automaticamente e transparentemente** d
 | [PLAN.md](PLAN.md) | Arquitetura, requisitos, estrutura de pastas, modelos ASR e fases/passos (`F0.1`..`F6.2`) com critérios de aceite | Apenas quando o usuário pedir alteração de escopo ou ao registrar decisão arquitetural na seção de decisões |
 | [PROGRESS.md](PROGRESS.md) | Tabela de status dos passos + **Checkpoint de Handoff Ativo** + **Log de Handoff** | **Todo agente**, ao iniciar, pausar/fazer handoff ou concluir um passo |
 | [AGENTS.md](AGENTS.md) | Este protocolo e regras de ambiente/código | Apenas com pedido explícito do usuário |
+| [docs/AI_GUIDE.md](docs/AI_GUIDE.md) | Guia detalhado de padrões, módulos, concorrência e receitas de extensão para agentes de IA | Agentes ao introduzir novos módulos ou padrões |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Documentação de arquitetura do sistema, diagramas Mermaid e decisões técnicas (ADRs) | Agentes e mantenedores |
 | `.claude/` e `.gemini/` | Configurações e slash commands espelhados (`/status`, `/next`, `/handoff`, `/verify`) | Manter sempre sincronizados entre os dois agentes |
 
 ---
